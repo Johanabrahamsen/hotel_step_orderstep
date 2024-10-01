@@ -1,33 +1,43 @@
 ﻿using System;
-using System.Data.SqlClient;  // For SQL connection
+using System.Data.SqlClient;
+using System.Net;
 using System.Net.Http;
+using System.Security.Authentication;
 using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+using System.Configuration;
 using Newtonsoft.Json;
+using System.Collections.Generic;
 
 class Program
 {
+    private static readonly HttpClient client = new HttpClient();
+
+    // Fetching the credentials from App.config
+    private static readonly string clientId = ConfigurationManager.AppSettings["ClientId"];
+    private static readonly string clientSecret = ConfigurationManager.AppSettings["ClientSecret"];
+    private static readonly string organizationId = ConfigurationManager.AppSettings["OrganizationId"];
+
     public static async Task Main(string[] args)
     {
+        // Force TLS 1.2
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+
         Console.WriteLine("Starting API and database connection test...");
 
         try
         {
-            // Step 1: Fetch the latest meal order data from SQL database
+            // Fetch the latest meal order data from SQL database
             Console.WriteLine("Fetching the latest meal order data from SQL Server...");
             var latestMealData = FetchLatestMealOrderData();
 
-                        Console.ReadLine(); 
-
-
-            if (latestMealData != null)
+            if (!string.IsNullOrEmpty(latestMealData))
             {
                 Console.WriteLine("Fetched latest meal data:");
+                Console.WriteLine(latestMealData);
 
-                Console.WriteLine(latestMealData);  // Print fetched data for debugging
-                Console.ReadLine();
-
-                // Step 2: Get Token for API
+                // Get Token for API
                 Console.WriteLine("Attempting to retrieve the token...");
                 var token = await GetToken();
 
@@ -36,9 +46,17 @@ class Program
                     Console.WriteLine("Token retrieval successful!");
                     Console.WriteLine($"Access Token: {token}");
 
-                    // Step 3: Send the meal data to OrderStep API
-                    Console.WriteLine("Attempting to send the meal order data to OrderStep API...");
-                    await SendOrderData(token, latestMealData);
+                    // Retrieve lead/customer list
+                    Console.WriteLine("Attempting to retrieve the list of customers or leads...");
+                    await GetLeadsAndCustomers(token);
+
+                    // Retrieve products list
+                    Console.WriteLine("Attempting to retrieve the product list...");
+                    await GetAtlanticAirwaysProducts(token);
+
+                    // Prepare and send the order
+                    //Console.WriteLine("Sending order to Orderstep API...");
+                    //await SendOrderData(token, latestMealData);
                 }
                 else
                 {
@@ -54,15 +72,15 @@ class Program
         {
             Console.WriteLine($"An error occurred: {ex.Message}");
         }
+
+        Console.ReadLine();  // Keeps the console open
     }
 
     // Step 1: Fetch the latest meal order data from SQL database
     public static string FetchLatestMealOrderData()
     {
-        // SQL connection string with Windows Authentication
         var connectionString = "Server=aa-sql2;Database=PAX_DATA;Integrated Security=True;";
-
-        string latestMealData = null;
+        var mealOrderDataList = new List<object>();
 
         using (SqlConnection connection = new SqlConnection(connectionString))
         {
@@ -72,20 +90,45 @@ class Program
                 connection.Open();
                 Console.WriteLine("Connected to SQL Server successfully.");
 
-                // Query to get the latest meal order (adjust the table/column names as needed)
                 string query = @"
-                    SELECT TOP 1 * 
-                    FROM [YourTableName]  -- Replace with actual table name
-                    ORDER BY [DateColumn] DESC";  // Replace with actual date column to order by
+                SELECT d.flight_no as FlúgviNr, CAST(d.std as date) as Dato,
+                CASE WHEN mbmt.OrderType=1 THEN 'Søla'
+                     WHEN mbmt.OrderType=3 THEN 'Prepaid'
+                     WHEN mbmt.OrderType=5 THEN 'Crew'
+                     WHEN mbmt.OrderType=6 THEN 'Ekstra' END as Slag,
+                mt.Name as MatarSlag, mbmt.Quantity as Antal
+                FROM meal.Flight f
+                INNER JOIN meal.FlightNr fn ON f.FlightNrId = fn.FlightNrId
+                INNER JOIN meal.MealBooking mb ON mb.FlightId = f.FlightId
+                INNER JOIN (
+                    SELECT mb1.FlightId, MAX(mb1.mealbookingid) as MealBookingId
+                    FROM meal.MealBooking mb1
+                    GROUP BY mb1.FlightId) a ON a.FlightId = f.FlightId
+                INNER JOIN meal.MealBookingMealType mbmt ON mbmt.MealBookingId = mb.MealBookingId
+                INNER JOIN DEPARTURES d ON d.id = f.DepartureId
+                INNER JOIN meal.MealType mt ON mbmt.MealTypeId = mt.MealTypeId
+                WHERE CAST(f.FlightDate as date) = CAST(GETDATE() as date)
+                AND mb.MealBookingId = a.MealBookingId
+                ORDER BY 2, 1, 3 DESC, 4";
 
                 using (SqlCommand command = new SqlCommand(query, connection))
                 {
                     using (SqlDataReader reader = command.ExecuteReader())
                     {
-                        if (reader.Read())
+                        while (reader.Read())
                         {
-                            // Replace with actual column names from your table
-                            latestMealData = $"Order ID: {reader["OrderID"]}, Meal: {reader["MealName"]}, Quantity: {reader["Quantity"]}, Date: {reader["DateColumn"]}";
+                            string formattedDate = DateTime.Parse(reader["Dato"].ToString()).ToString("yyyy-MM-dd");
+
+                            var mealOrderData = new
+                            {
+                                flightNumber = reader["FlúgviNr"].ToString(),
+                                date = formattedDate,
+                                type = reader["Slag"].ToString(),
+                                mealType = reader["MatarSlag"].ToString(),
+                                quantity = reader["Antal"].ToString()
+                            };
+
+                            mealOrderDataList.Add(mealOrderData);
                         }
                     }
                 }
@@ -93,80 +136,193 @@ class Program
             catch (Exception ex)
             {
                 Console.WriteLine($"An error occurred while fetching data: {ex.Message}");
-                Console.WriteLine($"Stack Trace: {ex.StackTrace}");
             }
         }
 
-        return latestMealData;
+        return JsonConvert.SerializeObject(mealOrderDataList);
     }
 
     // Step 2: Get Token from OrderStep API
     public static async Task<string> GetToken()
     {
-        var tokenEndpoint = "https://test14.orderstep.dk/oauth2/token/";
-
-        // Combine client_id and client_secret into a Base64-encoded string for Basic authentication
-        var clientCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes("UEPk1ZljXzACz7P75hAhi03kzKHylgxpdnmDFFfK:08Y0kUgV6DBIYhgrEk2P2cppyWGylmLJW9lz3YC2A44JZFOHD0tMqFwZ6bkAemeChso7ZCphqOpeIqaMYeUaerkuBn82ohgHqtKCRUB7HzpUVhJ3aC7G0b7Suz8OdvXj"));
-
-        var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", clientCredentials);
-
-        var content = new StringContent("grant_type=client_credentials", Encoding.UTF8, "application/x-www-form-urlencoded");
-        request.Content = content;
-
-        HttpResponseMessage response = await client.SendAsync(request);
-
-        if (response.IsSuccessStatusCode)
-        {
-            Console.WriteLine("Token endpoint responded successfully.");
-            var responseString = await response.Content.ReadAsStringAsync();
-            dynamic jsonResponse = JsonConvert.DeserializeObject(responseString);
-            Console.WriteLine("Token extracted from the response.");
-            return jsonResponse.access_token;
-        }
-        else
-        {
-            Console.WriteLine($"Failed to get token. HTTP Status: {response.StatusCode}");
-            return null;
-        }
-    }
-
-    // Step 3: Send the fetched meal order data to OrderStep API
-    public static async Task SendOrderData(string token, string mealData)
-    {
-        var orderEndpoint = "https://test14.orderstep.dk/public/api/v1/sale_orders/";  // Corrected endpoint
-        var organizationId = "c878a8e9-dd94-45e2-82de-2497a8ca96a6";  // Organization ID
+        var tokenEndpoint = "https://secure.orderstep.dk/oauth2/token/";
 
         try
         {
-            // Clear headers from any previous requests
-            client.DefaultRequestHeaders.Clear();
+            var clientCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}"));
 
-            // Set headers
-            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
-            client.DefaultRequestHeaders.Add("Accept-Language", "en");
+            var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", clientCredentials);
 
-            // Example of sending data (this will be developed further in the next step)
-            var content = new StringContent(JsonConvert.SerializeObject(mealData), Encoding.UTF8, "application/json");
-            HttpResponseMessage response = await client.PostAsync(orderEndpoint, content);
+            var content = new StringContent("grant_type=client_credentials", Encoding.UTF8, "application/x-www-form-urlencoded");
+            request.Content = content;
+
+            HttpResponseMessage response = await client.SendAsync(request);
 
             if (response.IsSuccessStatusCode)
             {
-                Console.WriteLine("Order data sent successfully!");
                 var responseString = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"Response: {responseString}");
+                dynamic jsonResponse = JsonConvert.DeserializeObject(responseString);
+                return jsonResponse.access_token;
             }
             else
             {
-                Console.WriteLine($"Failed to send order data. HTTP Status: {response.StatusCode}");
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"Failed to get token. HTTP Status: {response.StatusCode}");
+                Console.WriteLine($"Error Details: {errorContent}");
+                return null;
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Exception occurred while sending order data: {ex.Message}");
+            Console.WriteLine($"Unexpected error: {ex.Message}");
+            return null;
         }
     }
 
-    private static readonly HttpClient client = new HttpClient();
+    // Step 3: Retrieve lead/customer list from the API
+    public static async Task GetLeadsAndCustomers(string token)
+    {
+        var customerEndpoint = "https://secure.orderstep.dk/public/api/v1/leads_customers/";
+
+        try
+        {
+            client.DefaultRequestHeaders.Clear();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
+
+            HttpResponseMessage response = await client.GetAsync(customerEndpoint);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseString = await response.Content.ReadAsStringAsync();
+                dynamic jsonResponse = JsonConvert.DeserializeObject(responseString);
+
+                Console.WriteLine("Retrieved lead/customer list:");
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"Failed to retrieve customer list. HTTP Status: {response.StatusCode}");
+                Console.WriteLine($"Error Details: {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception occurred while retrieving customer list: {ex.Message}");
+        }
+    }
+
+    // Step 4: Retrieve products list from the API
+    public static async Task GetAtlanticAirwaysProducts(string token)
+    {
+        var productsEndpoint = "https://secure.orderstep.dk/public/api/v1/products/";
+        string nextPageUrl = productsEndpoint;
+
+        try
+        {
+            client.DefaultRequestHeaders.Clear();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
+
+            while (!string.IsNullOrEmpty(nextPageUrl))
+            {
+                HttpResponseMessage response = await client.GetAsync(nextPageUrl);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseString = await response.Content.ReadAsStringAsync();
+                    dynamic jsonResponse = JsonConvert.DeserializeObject(responseString);
+
+                    Console.WriteLine("Retrieved Atlantic Airways product list:");
+
+                    nextPageUrl = jsonResponse.next;
+                }
+                else if ((int)response.StatusCode == 429)
+                {
+                    var retryAfter = response.Headers.RetryAfter?.Delta?.TotalSeconds ?? 1;
+                    Console.WriteLine($"Rate limit hit. Retrying in {retryAfter} seconds...");
+                    await Task.Delay(TimeSpan.FromSeconds(retryAfter));
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Failed to retrieve product list. HTTP Status: {response.StatusCode}");
+                    Console.WriteLine($"Error Details: {errorContent}");
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception occurred while retrieving product list: {ex.Message}");
+        }
+    }
+
+    // Step 5: Send the fetched meal order data to OrderStep API
+    //public static async Task SendOrderData(string token, string latestMealData)
+    //{
+    //    var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_orders/";
+
+    //    try
+    //    {
+    //        client.DefaultRequestHeaders.Clear();
+    //        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+    //        client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
+
+    //        var mealData = JsonConvert.DeserializeObject<dynamic>(latestMealData);
+    //        string orderDate = mealData[0].date;
+    //        string title = $"Flogmatur {orderDate}";
+
+    //        var jsonPayload = new
+    //        {
+    //            lead_customer_id = 307480,
+    //            title = title,
+    //            language = "fo",
+    //            date = orderDate,
+    //            delivery_date = orderDate,
+    //            lines = new[]
+    //            {
+    //                new
+    //                {
+    //                    product_id = 207056, // Product ID from the retrieved products list
+    //                    qty = 5,
+    //                }
+    //            },
+    //            calendar_event_resources = new[]
+    //            {
+    //                new
+    //                {
+    //                    title = title,
+    //                    guests = 1,
+    //                    start_datetime = $"{orderDate}T08:00:00Z",
+    //                    end_datetime = $"{orderDate}T20:00:00Z",
+    //                    calendar_id = 5,
+    //                    calendar_resource_id = 55,
+    //                    calendar_category_id = 21
+    //                }
+    //            }
+    //        };
+
+    //        var content = new StringContent(JsonConvert.SerializeObject(jsonPayload), Encoding.UTF8, "application/json");
+
+    //        HttpResponseMessage response = await client.PostAsync(orderEndpoint, content);
+
+    //        if (response.IsSuccessStatusCode)
+    //        {
+    //            var responseString = await response.Content.ReadAsStringAsync();
+    //            Console.WriteLine($"Data successfully sent to OrderStep API: {responseString}");
+    //        }
+    //        else
+    //        {
+    //            var errorContent = await response.Content.ReadAsStringAsync();
+    //            Console.WriteLine($"Failed to send data to OrderStep API. HTTP Status: {response.StatusCode}");
+    //            Console.WriteLine($"Error Details: {errorContent}");
+    //        }
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        Console.WriteLine($"Exception occurred while sending the request: {ex.Message}");
+    //    }
+    //}
 }

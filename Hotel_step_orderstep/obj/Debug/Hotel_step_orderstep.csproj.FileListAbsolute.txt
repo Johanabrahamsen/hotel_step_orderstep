@@ -5,6 +5,8 @@ C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\
 C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\bin\Debug\Newtonsoft.Json.xml
 C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\obj\Debug\Hotel_step_orderstep.csproj.AssemblyReference.cache
 C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\obj\Debug\Hotel_step_orderstep.csproj.CoreCompileInputs.cache
-C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\obj\Debug\Hotel_step_orderstep.csproj.CopyComplete
 C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\obj\Debug\Hotel_step_orderstep.exe
 C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\obj\Debug\Hotel_step_orderstep.pdb
+C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\obj\Debug\Hotel_st.927CE90E.Up2Date
+C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\bin\Debug\System.Configuration.ConfigurationManager.dll
+C:\Users\johana.ATLANTIC\source\repos\Hotel_step_orderstep\Hotel_step_orderstep\bin\Debug\System.Configuration.ConfigurationManager.xml
