@@ -114,7 +114,7 @@ class Program
                 INNER JOIN meal.MealBookingMealType mbmt ON mbmt.MealBookingId = mb.MealBookingId
                 INNER JOIN DEPARTURES d ON d.id = f.DepartureId
                 INNER JOIN meal.MealType mt ON mbmt.MealTypeId = mt.MealTypeId
-                WHERE CAST(f.FlightDate as date) = CAST(GETDATE() as date)
+                WHERE CAST(f.FlightDate as date) = CAST(DATEADD(day, 1, GETDATE()) as date)
                 AND mb.MealBookingId = a.MealBookingId
                 ORDER BY 2, 1, 3 DESC, 4";
 
@@ -359,8 +359,8 @@ class Program
                 {
                     title = $"Flogmatur {DateTime.UtcNow:yyyy-MM-dd}",
                     guests = 1,
-                    start_datetime = $"{DateTime.UtcNow:yyyy-MM-dd}T08:00:00Z",
-                    end_datetime = $"{DateTime.UtcNow:yyyy-MM-dd}T20:00:00Z",
+                    start_datetime = $"{DateTime.UtcNow:yyyy-MM-dd}T08:00:00Z", 
+                    end_datetime = $"{DateTime.UtcNow:yyyy-MM-dd}T20:00:00Z", 
                     calendar_id = 5,
                     calendar_resource_id = 55,
                     calendar_category_id = 21
