@@ -254,12 +254,6 @@ class Program
                     Console.WriteLine("Retrieved Atlantic Airways product list:");
                     products.AddRange(jsonResponse.results);
 
-                    // Loop through products and print each product's details
-                    for (int i = 0; i < jsonResponse.results.Count; i++)
-                    {
-                        var product = jsonResponse.results[i];
-                        Console.WriteLine($"Product ID: {product.id}, Name: {product.name}, Price: {product.price}");
-                    }
 
                     // Check for pagination (if there is a next page)
                     nextPageUrl = jsonResponse.next;
@@ -336,7 +330,7 @@ class Program
     // Step 6: Send the orders to OrderStep API
     public static async Task SendOrderData(string token, List<dynamic> ordersToPlace)
     {
-        var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_quotes/";
+        var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_orders/";
 
         try
         {
