@@ -345,28 +345,30 @@ class Program
             }
 
             // Prepare the order payload
+            // Prepare the order payload
             var jsonPayload = new
             {
                 lead_customer_id = 307480, // Atlantic Airways ID
-                title = $"TEST TEST {DateTime.UtcNow:yyyy-MM-dd}", // Title with today's date
+                title = $"TEST TEST {DateTime.UtcNow.AddDays(1):yyyy-MM-dd}", // Title with tomorrow's date
                 language = "fo", // Faroese
-                date = DateTime.UtcNow.ToString("yyyy-MM-dd"), // Order date
-                delivery_date = DateTime.UtcNow.ToString("yyyy-MM-dd"), // Delivery date
+                date = DateTime.UtcNow.AddDays(1).ToString("yyyy-MM-dd"), // Order date for tomorrow
+                delivery_date = DateTime.UtcNow.AddDays(1).ToString("yyyy-MM-dd"), // Delivery date for tomorrow
                 lines = ordersToPlace, // All the order lines with product_id and total quantity
                 calendar_event_resources = new[]
                 {
-                new
-                {
-                    title = $"Flogmatur {DateTime.UtcNow:yyyy-MM-dd}",
-                    guests = 1,
-                    start_datetime = $"{DateTime.UtcNow:yyyy-MM-dd}T08:00:00Z", 
-                    end_datetime = $"{DateTime.UtcNow:yyyy-MM-dd}T20:00:00Z", 
-                    calendar_id = 5,
-                    calendar_resource_id = 55,
-                    calendar_category_id = 21
+                    new
+                    {
+                        title = $"Flogmatur {DateTime.UtcNow.AddDays(1):yyyy-MM-dd}", // Event title for tomorrow
+                        guests = 1,
+                        start_datetime = $"{DateTime.UtcNow.AddDays(1):yyyy-MM-dd}T08:00:00Z", // Start datetime for tomorrow
+                        end_datetime = $"{DateTime.UtcNow.AddDays(1):yyyy-MM-dd}T20:00:00Z", // End datetime for tomorrow
+                        calendar_id = 5,
+                        calendar_resource_id = 55,
+                        calendar_category_id = 21
+                    }
                 }
-            }
             };
+
 
             // Convert to JSON
             var content = new StringContent(JsonConvert.SerializeObject(jsonPayload), Encoding.UTF8, "application/json");
