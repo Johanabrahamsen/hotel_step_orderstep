@@ -11,6 +11,29 @@ using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Linq;
 
+public static class HttpClientExtensions
+{
+    public static Task<HttpResponseMessage> PatchAsync(this HttpClient client, string requestUri, HttpContent content)
+    {
+        var request = new HttpRequestMessage(new HttpMethod("PATCH"), requestUri)
+        {
+            Content = content
+        };
+        return client.SendAsync(request);
+    }
+}
+
+public class OrderLine
+{
+    public int? id { get; set; }
+    public int product_id { get; set; }
+    public string qty { get; set; }
+    public string description { get; set; }
+    public string unit_sales_price { get; set; }
+    public string unit_cost_price { get; set; }
+    public string discount_per { get; set; }
+}
+
 class Program
 {
     private static readonly HttpClient client = new HttpClient();
@@ -22,67 +45,80 @@ class Program
 
     public static async Task Main(string[] args)
     {
-        // Force TLS 1.2
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-
         Console.WriteLine("Starting API and database connection test...");
 
-        try
+        while (true)
         {
-            // Fetch the latest meal order data from SQL database
-            Console.WriteLine("Fetching the latest meal order data from SQL Server...");
-            var latestMealData = FetchLatestMealOrderData();
-
-            if (latestMealData.Count > 0)
+            try
             {
-                Console.WriteLine("Fetched latest meal data:");
-                foreach (var meal in latestMealData)
+                Console.WriteLine("Fetching the latest meal order data from SQL Server...");
+                var latestMealData = FetchLatestMealOrderData();
+
+                if (latestMealData.Count > 0)
                 {
-                    Console.WriteLine(JsonConvert.SerializeObject(meal));
-                }
+                    Console.WriteLine("Fetched latest meal data:");
+                    foreach (var meal in latestMealData)
+                    {
+                        Console.WriteLine(JsonConvert.SerializeObject(meal));
+                    }
 
-                // Get Token for API
-                Console.WriteLine("Attempting to retrieve the token...");
-                var token = await GetToken();
+                    Console.WriteLine("Attempting to retrieve the token...");
+                    var token = await GetToken();
 
-                if (token != null)
-                {
-                    Console.WriteLine("Token retrieval successful!");
-                    Console.WriteLine($"Access Token: {token}");
+                    if (token != null)
+                    {
+                        Console.WriteLine("Token retrieval successful!");
+                        Console.WriteLine($"Access Token: {token}");
 
-                    // Retrieve products from OrderStep API
-                    Console.WriteLine("Attempting to retrieve the product list...");
-                    var orderstepProducts = await GetAtlanticAirwaysProducts(token);
+                        // Set the target date to one week forward
+                        DateTime targetDate = DateTime.UtcNow.AddDays(7);
 
-                    // Compare and calculate orders
-                    var ordersToPlace = CompareAndCalculateOrders(latestMealData, orderstepProducts);
+                        // Retrieve products from OrderStep API
+                        var orderstepProducts = await GetAtlanticAirwaysProducts(token);
 
-                    // Send the orders to OrderStep API
-                    Console.WriteLine("Attempting to send the order...");
-                    await SendOrderData(token, ordersToPlace);  // Correct usage: two arguments
+                        // Compare meal orders with the retrieved products to determine orders to place
+                        var ordersToPlace = CompareAndCalculateOrders(latestMealData, orderstepProducts);
 
-                    Console.WriteLine("Order data prepared, sent successfully.");
+                        // Retrieve existing order for the target date for comparison
+                        Console.WriteLine($"Fetching existing order for {targetDate:yyyy-MM-dd} from OrderStep API...");
+                        var existingOrder = await FetchExistingOrderData(token, targetDate);
 
+                        // Check and update orders based on the comparison
+                        bool anyChanges = await CheckAndUpdateOrders(token, ordersToPlace, existingOrder);
+
+                        if (anyChanges)
+                        {
+                            Console.WriteLine("Changes detected, sending new orders or updates.");
+                            await SendOrderData(token, ordersToPlace, existingOrder);
+                        }
+                        else
+                        {
+                            Console.WriteLine("No changes detected. Skipping sending new orders.");
+                        }
+
+                        Console.WriteLine("Order data processed and updated successfully.");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Failed to retrieve token. Exiting...");
+                    }
                 }
                 else
                 {
-                    Console.WriteLine("Failed to retrieve token. Exiting...");
+                    Console.WriteLine("No data found in the database.");
                 }
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine("No data found in the database.");
+                Console.WriteLine($"An error occurred: {ex.Message}");
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"An error occurred: {ex.Message}");
-        }
 
-        Console.ReadLine();  // Keeps the console open
+            await Task.Delay(TimeSpan.FromMinutes(15));
+        }
     }
 
-    // Step 1: Fetch the latest meal order data from SQL database
+    // Fetch the latest meal order data from SQL database
     public static List<dynamic> FetchLatestMealOrderData()
     {
         var connectionString = "Server=aa-sql2;Database=PAX_DATA;Integrated Security=True;";
@@ -96,33 +132,65 @@ class Program
                 connection.Open();
                 Console.WriteLine("Connected to SQL Server successfully.");
 
-                // Query to fetch the meal order data
                 string query = @"
-                SELECT d.flight_no as FlúgviNr, CAST(d.std as date) as Dato,
-                CASE WHEN mbmt.OrderType=1 THEN 'Søla'
-                     WHEN mbmt.OrderType=3 THEN 'Prepaid'
-                     WHEN mbmt.OrderType=5 THEN 'Crew'
-                     WHEN mbmt.OrderType=6 THEN 'Ekstra' END as Slag,
-                mt.Name as MatarSlag, mbmt.Quantity as Antal, mt.MealDeliveryCode
-                FROM meal.Flight f
-                INNER JOIN meal.FlightNr fn ON f.FlightNrId = fn.FlightNrId
-                INNER JOIN meal.MealBooking mb ON mb.FlightId = f.FlightId
-                INNER JOIN (
-                    SELECT mb1.FlightId, MAX(mb1.MealBookingId) as MealBookingId
-                    FROM meal.MealBooking mb1
-                    GROUP BY mb1.FlightId) a ON a.FlightId = f.FlightId
-                INNER JOIN meal.MealBookingMealType mbmt ON mbmt.MealBookingId = mb.MealBookingId
-                INNER JOIN DEPARTURES d ON d.id = f.DepartureId
-                INNER JOIN meal.MealType mt ON mbmt.MealTypeId = mt.MealTypeId
-                WHERE CAST(f.FlightDate as date) = CAST(DATEADD(day, 1, GETDATE()) as date)
-                AND mb.MealBookingId = a.MealBookingId
-                ORDER BY 2, 1, 3 DESC, 4";
+                    WITH MealData AS (
+                        SELECT 
+                            d.flight_no as FlúgviNr, 
+                            CAST(d.std as date) as Dato,
+                            CASE 
+                                WHEN mbmt.OrderType=1 THEN 'Søla'
+                                WHEN mbmt.OrderType=3 THEN 'Prepaid'
+                                WHEN mbmt.OrderType=5 THEN 'Crew'
+                                WHEN mbmt.OrderType=6 OR feo.FlightId IS NOT NULL THEN 'Ekstra'
+                            END as Slag,
+                            mt.Name as MatarSlag, 
+                            mbmt.Quantity, 
+                            ISNULL(feo.NumberOfExtra, 0) as NumberOfExtra,
+                            mt.MealDeliveryCode,
+                            ROW_NUMBER() OVER (PARTITION BY d.flight_no, mt.MealDeliveryCode ORDER BY mbmt.OrderType) as RowNum
+                        FROM 
+                            meal.Flight f
+                        INNER JOIN 
+                            meal.FlightNr fn ON f.FlightNrId = fn.FlightNrId
+                        INNER JOIN 
+                            meal.MealBooking mb ON mb.FlightId = f.FlightId
+                        INNER JOIN 
+                            (SELECT mb1.FlightId, MAX(mb1.MealBookingId) as MealBookingId
+                             FROM meal.MealBooking mb1
+                             GROUP BY mb1.FlightId) a ON a.FlightId = f.FlightId
+                        INNER JOIN 
+                            meal.MealBookingMealType mbmt ON mbmt.MealBookingId = mb.MealBookingId
+                        INNER JOIN 
+                            DEPARTURES d ON d.id = f.DepartureId
+                        INNER JOIN 
+                            meal.MealType mt ON mbmt.MealTypeId = mt.MealTypeId
+                        LEFT JOIN 
+                            [PAX_DATA].[Meal].[FlightExtraOrder] feo 
+                            ON feo.FlightId = f.FlightId AND feo.MealTypeId = mbmt.MealTypeId
+                        WHERE 
+                            CAST(f.FlightDate as date) = CAST(DATEADD(day, 7, GETDATE()) as date)
+                        AND 
+                            mb.MealBookingId = a.MealBookingId
+                    )
+                    SELECT 
+                        FlúgviNr, 
+                        Dato,
+                        Slag,
+                        MatarSlag,
+                        SUM(Quantity) + CASE WHEN RowNum = 1 THEN SUM(NumberOfExtra) ELSE 0 END as Antal, 
+                        MealDeliveryCode
+                    FROM 
+                        MealData
+                    GROUP BY 
+                        FlúgviNr, Dato, Slag, MatarSlag, MealDeliveryCode, RowNum
+                    ORDER BY 
+                        2, 1, 3 DESC, 4;
+                ";
 
                 using (SqlCommand command = new SqlCommand(query, connection))
                 {
                     using (SqlDataReader reader = command.ExecuteReader())
                     {
-                        // Read each row and add to the list
                         while (reader.Read())
                         {
                             string formattedDate = DateTime.Parse(reader["Dato"].ToString()).ToString("yyyy-MM-dd");
@@ -151,7 +219,7 @@ class Program
         return mealOrderDataList;
     }
 
-    // Step 2: Get Token from OrderStep API
+    // Get Token from OrderStep API
     public static async Task<string> GetToken()
     {
         var tokenEndpoint = "https://secure.orderstep.dk/oauth2/token/";
@@ -189,47 +257,7 @@ class Program
         }
     }
 
-    // Step 3: Retrieve lead/customer list from the API
-    public static async Task GetLeadsAndCustomers(string token)
-    {
-        var customerEndpoint = "https://secure.orderstep.dk/public/api/v1/leads_customers";
-
-        try
-        {
-            client.DefaultRequestHeaders.Clear();
-            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
-
-            // Get the list of leads/customers
-            HttpResponseMessage response = await client.GetAsync(customerEndpoint);
-
-            if (response.IsSuccessStatusCode)
-            {
-                var responseString = await response.Content.ReadAsStringAsync();
-                dynamic jsonResponse = JsonConvert.DeserializeObject(responseString);
-
-                Console.WriteLine("Retrieved lead/customer list:");
-
-                // Loop through the results and print the lead/customer details
-                foreach (var customer in jsonResponse.results)
-                {
-                    Console.WriteLine($"ID: {customer.id}, Name: {customer.name}, Number: {customer.number}, Email: {customer.mail}");
-                }
-            }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"Failed to retrieve customer list. HTTP Status: {response.StatusCode}");
-                Console.WriteLine($"Error Details: {errorContent}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Exception occurred while retrieving customer list: {ex.Message}");
-        }
-    }
-
-    // Step 4: Retrieve products list from the API with pagination and rate limit handling
+    // Retrieve products list from the API with pagination and rate limit handling
     public static async Task<List<dynamic>> GetAtlanticAirwaysProducts(string token)
     {
         var productsEndpoint = "https://secure.orderstep.dk/public/api/v1/products/";
@@ -240,7 +268,7 @@ class Program
         {
             client.DefaultRequestHeaders.Clear();
             client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);  // This is the ID for Atlantic Airways
+            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);  // Set the organization ID for Atlantic Airways
 
             while (!string.IsNullOrEmpty(nextPageUrl))
             {
@@ -254,18 +282,15 @@ class Program
                     Console.WriteLine("Retrieved Atlantic Airways product list:");
                     products.AddRange(jsonResponse.results);
 
-
-                    // Check for pagination (if there is a next page)
-                    nextPageUrl = jsonResponse.next;
+                    nextPageUrl = jsonResponse.next; // Update to the next page URL if it exists
 
                     // Delay to avoid hitting rate limits
-                    await Task.Delay(2000); // 2-second delay between requests
+                    await Task.Delay(2000); // Wait 2 seconds between requests
                 }
-                else if ((int)response.StatusCode == 429) // Check if status code is 429
+                else if ((int)response.StatusCode == 429) // Rate limit status code
                 {
-                    // Handle rate limit error (HTTP 429)
                     var retryAfter = response.Headers.RetryAfter?.Delta?.TotalSeconds ?? 1; // Use Retry-After header if provided
-                    Console.WriteLine($"Rate limit hit. Retrying in {retryAfter} seconds...");
+                    Console.WriteLine($"Rate limit reached. Retrying in {retryAfter} seconds...");
                     await Task.Delay((int)(retryAfter * 1000)); // Wait before retrying
                 }
                 else
@@ -273,7 +298,7 @@ class Program
                     var errorContent = await response.Content.ReadAsStringAsync();
                     Console.WriteLine($"Failed to retrieve product list. HTTP Status: {response.StatusCode}");
                     Console.WriteLine($"Error Details: {errorContent}");
-                    break; // Exit the loop on any other error
+                    break;
                 }
             }
         }
@@ -285,35 +310,35 @@ class Program
         return products;
     }
 
-    // Step 5: Compare the meal order data with product list and calculate the orders
-    public static List<dynamic> CompareAndCalculateOrders(List<dynamic> mealOrders, List<dynamic> orderstepProducts)
+    // Compare the meal order data with product list and calculate the orders
+    public static List<OrderLine> CompareAndCalculateOrders(List<dynamic> mealOrders, List<dynamic> orderstepProducts)
     {
-        var ordersToPlace = new List<dynamic>();
+        var ordersToPlace = new List<OrderLine>();
 
-        // Step 1: Group by MealDeliveryCode and sum the quantities
         var groupedMealOrders = mealOrders
             .GroupBy(m => m.MealDeliveryCode)
             .Select(g => new
             {
                 MealDeliveryCode = g.Key,
-                TotalQuantity = g.Sum(m => int.Parse(m.quantity)) // Summing up the quantity for each MealDeliveryCode
+                TotalQuantity = g.Sum(m => int.Parse(m.quantity))
             })
             .ToList();
 
-        // Step 2: Match with the products from OrderStep API
         foreach (var groupedMeal in groupedMealOrders)
         {
-            // Find the matching product in the OrderStep product list using MealDeliveryCode as product_id
             var matchingProduct = orderstepProducts.Find(p => p.id.ToString() == groupedMeal.MealDeliveryCode.ToString());
 
             if (matchingProduct != null)
             {
-                // Add the matched product and total quantity to the order
-                var orderLine = new
+                var orderLine = new OrderLine
                 {
+                    id = null,
                     product_id = matchingProduct.id,
-                    qty = groupedMeal.TotalQuantity,
-                    description = matchingProduct.name // Adding the product name for clarity
+                    qty = groupedMeal.TotalQuantity.ToString("F2"), // Format as string with two decimal places
+                    description = matchingProduct.name,
+                    unit_sales_price = matchingProduct.unit_sales_price, // Assuming the product has this field
+                    unit_cost_price = matchingProduct.unit_cost_price,
+                    discount_per = null
                 };
 
                 ordersToPlace.Add(orderLine);
@@ -327,8 +352,107 @@ class Program
         return ordersToPlace;
     }
 
-    // Step 6: Send the orders to OrderStep API
-    public static async Task SendOrderData(string token, List<dynamic> ordersToPlace)
+    // Fetch existing order data from OrderStep API
+    public static async Task<dynamic> FetchExistingOrderData(string token, DateTime targetDate)
+    {
+        var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_orders/";
+        dynamic existingOrder = null;
+
+        try
+        {
+            client.DefaultRequestHeaders.Clear();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
+
+            var referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
+            var requestUrl = $"{orderEndpoint}?ref={referenceValue}";
+
+            HttpResponseMessage response = await client.GetAsync(requestUrl);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseString = await response.Content.ReadAsStringAsync();
+                dynamic jsonResponse = JsonConvert.DeserializeObject(responseString);
+
+                if (jsonResponse.results.Count > 0)
+                {
+                    existingOrder = jsonResponse.results[0];
+                    Console.WriteLine("Existing order found:");
+                    Console.WriteLine(JsonConvert.SerializeObject(existingOrder, Formatting.Indented));
+                }
+                else
+                {
+                    Console.WriteLine("No existing order found.");
+                }
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"Failed to fetch existing order. HTTP Status: {response.StatusCode}");
+                Console.WriteLine($"Error Details: {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception occurred while fetching existing order: {ex.Message}");
+        }
+
+        return existingOrder;
+    }
+
+    // Check and update the orders to OrderStep API if there are any changes
+    public static async Task<bool> CheckAndUpdateOrders(string token, List<OrderLine> ordersToPlace, dynamic existingOrder)
+    {
+        bool anyChanges = false;
+
+        if (existingOrder != null && existingOrder.deleted != true)
+        {
+            var existingLines = existingOrder.lines;
+            foreach (var orderToPlace in ordersToPlace)
+            {
+                var matchingExistingLine = ((IEnumerable<dynamic>)existingLines).FirstOrDefault(existingLine =>
+                    existingLine.product_id == orderToPlace.product_id);
+
+                if (matchingExistingLine != null)
+                {
+                    // Assign existing line ID
+                    orderToPlace.id = matchingExistingLine.id;
+
+                    // Assign existing unit prices and discount
+                    orderToPlace.unit_sales_price = matchingExistingLine.unit_sales_price;
+                    orderToPlace.unit_cost_price = matchingExistingLine.unit_cost_price;
+                    orderToPlace.discount_per = matchingExistingLine.discount_per;
+
+                    // If the line already exists, check for quantity differences
+                    if (matchingExistingLine.qty != orderToPlace.qty)
+                    {
+                        Console.WriteLine($"Detected change in order for product {orderToPlace.product_id}. Updating...");
+                        anyChanges = true;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"No changes detected for product {orderToPlace.product_id}. Skipping update.");
+                    }
+                }
+                else
+                {
+                    // New product line to add
+                    Console.WriteLine($"New product found: {orderToPlace.product_id}. Marking for addition.");
+                    anyChanges = true;
+                }
+            }
+        }
+        else
+        {
+            // Existing order is deleted or does not exist
+            anyChanges = true;
+        }
+
+        return anyChanges;
+    }
+
+    // Send the orders to OrderStep API (POST new orders or PATCH existing orders)
+    public static async Task SendOrderData(string token, List<OrderLine> ordersToPlace, dynamic existingOrder)
     {
         var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_orders/";
 
@@ -338,30 +462,69 @@ class Program
             client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
             client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
 
-            if (ordersToPlace.Count == 0)
+            var targetDate = DateTime.UtcNow.AddDays(7);
+            var referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
+
+            if (existingOrder != null && existingOrder.deleted != true)
             {
-                Console.WriteLine("No order lines to send. Exiting...");
+                // Retrieve existingCalendarEventResourceId
+                int? existingCalendarEventResourceId = null;
+
+                if (existingOrder.calendar_event_resources != null && existingOrder.calendar_event_resources.Count > 0)
+                {
+                    existingCalendarEventResourceId = (int)existingOrder.calendar_event_resources[0].id;
+                }
+
+                // Update the existing order
+                await PatchOrderData(token, ordersToPlace, (int)existingOrder.id, existingCalendarEventResourceId);
                 return;
             }
+            else
+            {
+                // Create a new order
+                await CreateNewOrder(token, ordersToPlace, referenceValue, targetDate);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception occurred while sending the request: {ex.Message}");
+        }
+    }
 
-            // Prepare the order payload
-            // Prepare the order payload
+    // Create a new order
+    public static async Task CreateNewOrder(string token, List<OrderLine> ordersToPlace, string referenceValue, DateTime targetDate)
+    {
+        var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_orders/";
+
+        try
+        {
             var jsonPayload = new
             {
                 lead_customer_id = 307480, // Atlantic Airways ID
-                title = $"TEST TEST {DateTime.UtcNow.AddDays(1):yyyy-MM-dd}", // Title with tomorrow's date
+                @ref = referenceValue,      // Unique reference
+                title = $"Order for {targetDate:yyyy-MM-dd}",
+                date = targetDate.ToString("yyyy-MM-dd"),
+                delivery_date = targetDate.ToString("yyyy-MM-dd"),
                 language = "fo", // Faroese
-                date = DateTime.UtcNow.AddDays(1).ToString("yyyy-MM-dd"), // Order date for tomorrow
-                delivery_date = DateTime.UtcNow.AddDays(1).ToString("yyyy-MM-dd"), // Delivery date for tomorrow
-                lines = ordersToPlace, // All the order lines with product_id and total quantity
+                lines = ordersToPlace.Select((order, index) => new
+                {
+                    pos = index + 1,
+                    product_id = order.product_id,
+                    line_text = order.description,
+                    qty = order.qty,
+                    unit_sales_price = order.unit_sales_price,
+                    unit_cost_price = order.unit_cost_price,
+                    discount_per = order.discount_per
+                }).ToList(),
                 calendar_event_resources = new[]
                 {
                     new
                     {
-                        title = $"Flogmatur {DateTime.UtcNow.AddDays(1):yyyy-MM-dd}", // Event title for tomorrow
+                        title = $"Flogmatur {targetDate:yyyy-MM-dd}",
                         guests = 1,
-                        start_datetime = $"{DateTime.UtcNow.AddDays(1):yyyy-MM-dd}T08:00:00Z", // Start datetime for tomorrow
-                        end_datetime = $"{DateTime.UtcNow.AddDays(1):yyyy-MM-dd}T20:00:00Z", // End datetime for tomorrow
+                        start_datetime = $"{targetDate:yyyy-MM-dd}T08:00:00Z",
+                        end_datetime = $"{targetDate:yyyy-MM-dd}T20:00:00Z",
                         calendar_id = 5,
                         calendar_resource_id = 55,
                         calendar_category_id = 21
@@ -369,11 +532,9 @@ class Program
                 }
             };
 
-
-            // Convert to JSON
             var content = new StringContent(JsonConvert.SerializeObject(jsonPayload), Encoding.UTF8, "application/json");
+            Console.WriteLine($"Sending payload to OrderStep API: {JsonConvert.SerializeObject(jsonPayload)}");
 
-            // POST the data to the Orderstep API
             HttpResponseMessage response = await client.PostAsync(orderEndpoint, content);
 
             if (response.IsSuccessStatusCode)
@@ -390,10 +551,84 @@ class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Exception occurred while sending the request: {ex.Message}");
+            Console.WriteLine($"Exception occurred while creating a new order: {ex.Message}");
         }
     }
 
+    // PATCH the order data to OrderStep API if changes are detected
+    public static async Task PatchOrderData(string token, List<OrderLine> orderLines, int orderId, int? existingCalendarEventResourceId)
+    {
+        var patchEndpoint = $"https://secure.orderstep.dk/public/api/v1/sale_orders/{orderId}/";
 
+        try
+        {
+            client.DefaultRequestHeaders.Clear();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
 
+            var targetDate = DateTime.UtcNow.AddDays(7);
+            var referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
+
+            // Prepare the payload for the PATCH request
+            var patchPayload = new
+            {
+                id = orderId,
+                lead_customer_id = 307480,
+                @ref = referenceValue,
+                title = $"TEST TEST Order {targetDate:yyyy-MM-dd}",
+                date = targetDate.ToString("yyyy-MM-dd"),
+                delivery_date = targetDate.ToString("yyyy-MM-dd"),
+                language = "fo",
+                lines = orderLines.Select((line, index) => new
+                {
+                    id = line.id,
+                    pos = index + 1,
+                    product_id = line.product_id,
+                    line_text = line.description,
+                    qty = line.qty,
+                    unit_sales_price = line.unit_sales_price,
+                    unit_cost_price = line.unit_cost_price,
+                    discount_per = line.discount_per
+                }).ToList(),
+                calendar_event_resources = new[]
+                {
+                    new
+                    {
+                        id = existingCalendarEventResourceId,
+                        title = $"Updated Flogmatur {targetDate:yyyy-MM-dd}",
+                        guests = 1,
+                        start_datetime = $"{targetDate:yyyy-MM-dd}T08:00:00Z",
+                        end_datetime = $"{targetDate:yyyy-MM-dd}T20:00:00Z",
+                        calendar_id = 5,
+                        calendar_resource_id = 55,
+                        calendar_category_id = 21
+                    }
+                }
+            };
+
+            Console.WriteLine("PATCH payload:");
+            Console.WriteLine(JsonConvert.SerializeObject(patchPayload, Formatting.Indented));
+
+            var content = new StringContent(JsonConvert.SerializeObject(patchPayload), Encoding.UTF8, "application/json");
+
+            // Send the PATCH request
+            HttpResponseMessage response = await client.PatchAsync(patchEndpoint, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseString = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"Successfully patched order {orderId}: {responseString}");
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"Failed to patch order {orderId}. HTTP Status: {response.StatusCode}");
+                Console.WriteLine($"Error Details: {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception occurred while patching the order: {ex.Message}");
+        }
+    }
 }
