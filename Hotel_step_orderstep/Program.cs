@@ -10,6 +10,7 @@ using System.Configuration;
 using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http.Headers;
 
 public static class HttpClientExtensions
 {
@@ -27,11 +28,11 @@ public class OrderLine
 {
     public int? id { get; set; }
     public int product_id { get; set; }
-    public string qty { get; set; }
+    public decimal qty { get; set; }
     public string description { get; set; }
-    public string unit_sales_price { get; set; }
-    public string unit_cost_price { get; set; }
-    public string discount_per { get; set; }
+    public decimal unit_sales_price { get; set; }
+    public decimal unit_cost_price { get; set; }
+    public decimal? discount_per { get; set; }
 }
 
 class Program
@@ -229,7 +230,7 @@ class Program
             var clientCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}"));
 
             var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", clientCredentials);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", clientCredentials);
 
             var content = new StringContent("grant_type=client_credentials", Encoding.UTF8, "application/x-www-form-urlencoded");
             request.Content = content;
@@ -267,7 +268,7 @@ class Program
         try
         {
             client.DefaultRequestHeaders.Clear();
-            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
             client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);  // Set the organization ID for Atlantic Airways
 
             while (!string.IsNullOrEmpty(nextPageUrl))
@@ -324,33 +325,55 @@ class Program
             })
             .ToList();
 
-        foreach (var groupedMeal in groupedMealOrders)
+            // Define default prices for products
+            var productPrices = new Dictionary<int, decimal>
         {
-            var matchingProduct = orderstepProducts.Find(p => p.id.ToString() == groupedMeal.MealDeliveryCode.ToString());
+            {207056, 44.00m},
+            {207058, 43.00m},
+            {207057, 48.00m},
+            {207060, 40.00m},
+            {207059, 50.00m},
+            {207064, 65.00m},
+            {207062, 75.00m},
+            {207065, 75.00m},
+            {207063, 75.00m}
+        };
 
-            if (matchingProduct != null)
+            foreach (var groupedMeal in groupedMealOrders)
             {
-                var orderLine = new OrderLine
+                var matchingProduct = orderstepProducts.Find(p => p.id.ToString() == groupedMeal.MealDeliveryCode.ToString());
+
+                if (matchingProduct != null)
                 {
-                    id = null,
-                    product_id = matchingProduct.id,
-                    qty = groupedMeal.TotalQuantity.ToString("F2"), // Format as string with two decimal places
-                    description = matchingProduct.name,
-                    unit_sales_price = matchingProduct.unit_sales_price, // Assuming the product has this field
-                    unit_cost_price = matchingProduct.unit_cost_price,
-                    discount_per = null
-                };
+                    // Explicitly convert matchingProduct.id to int
+                    int productId = Convert.ToInt32(matchingProduct.id);
 
-                ordersToPlace.Add(orderLine);
-            }
-            else
-            {
-                Console.WriteLine($"No matching product found for MealDeliveryCode: {groupedMeal.MealDeliveryCode}");
-            }
-        }
+                    // Get the unit_sales_price from the productPrices dictionary
+                    decimal unitSalesPrice = productPrices.ContainsKey(productId) ? productPrices[productId] : 0m;
+                    decimal unitCostPrice = 0m; // Set to zero or appropriate value
 
-        return ordersToPlace;
+                    var orderLine = new OrderLine
+                    {
+                        id = null,
+                        product_id = productId,
+                        qty = groupedMeal.TotalQuantity,
+                        description = matchingProduct.name,
+                        unit_sales_price = unitSalesPrice,
+                        unit_cost_price = unitCostPrice,
+                        discount_per = null
+                    };
+
+                    ordersToPlace.Add(orderLine);
+                }
+                else
+                {
+                    Console.WriteLine($"No matching product found for MealDeliveryCode: {groupedMeal.MealDeliveryCode}");
+                }
+            }
+
+            return ordersToPlace;
     }
+
 
     // Fetch existing order data from OrderStep API
     public static async Task<dynamic> FetchExistingOrderData(string token, DateTime targetDate)
@@ -361,7 +384,7 @@ class Program
         try
         {
             client.DefaultRequestHeaders.Clear();
-            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
             client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
 
             var referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
@@ -419,12 +442,12 @@ class Program
                     orderToPlace.id = matchingExistingLine.id;
 
                     // Assign existing unit prices and discount
-                    orderToPlace.unit_sales_price = matchingExistingLine.unit_sales_price;
-                    orderToPlace.unit_cost_price = matchingExistingLine.unit_cost_price;
-                    orderToPlace.discount_per = matchingExistingLine.discount_per;
+                    orderToPlace.unit_sales_price = Convert.ToDecimal(matchingExistingLine.unit_sales_price.ToString());
+                    orderToPlace.unit_cost_price = Convert.ToDecimal(matchingExistingLine.unit_cost_price.ToString());
+                    orderToPlace.discount_per = matchingExistingLine.discount_per != null ? Convert.ToDecimal(matchingExistingLine.discount_per.ToString()) : (decimal?)null;
 
                     // If the line already exists, check for quantity differences
-                    if (matchingExistingLine.qty != orderToPlace.qty)
+                    if (Convert.ToDecimal(matchingExistingLine.qty.ToString()) != orderToPlace.qty)
                     {
                         Console.WriteLine($"Detected change in order for product {orderToPlace.product_id}. Updating...");
                         anyChanges = true;
@@ -454,17 +477,8 @@ class Program
     // Send the orders to OrderStep API (POST new orders or PATCH existing orders)
     public static async Task SendOrderData(string token, List<OrderLine> ordersToPlace, dynamic existingOrder)
     {
-        var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_orders/";
-
         try
         {
-            client.DefaultRequestHeaders.Clear();
-            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
-
-            var targetDate = DateTime.UtcNow.AddDays(7);
-            var referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
-
             if (existingOrder != null && existingOrder.deleted != true)
             {
                 // Retrieve existingCalendarEventResourceId
@@ -482,6 +496,8 @@ class Program
             else
             {
                 // Create a new order
+                DateTime targetDate = DateTime.UtcNow.AddDays(7);
+                var referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
                 await CreateNewOrder(token, ordersToPlace, referenceValue, targetDate);
                 return;
             }
@@ -499,11 +515,17 @@ class Program
 
         try
         {
+            client.DefaultRequestHeaders.Clear();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
             var jsonPayload = new
             {
                 lead_customer_id = 307480, // Atlantic Airways ID
                 @ref = referenceValue,      // Unique reference
-                title = $"Order for {targetDate:yyyy-MM-dd}",
+                title = $"TEST TEST  {targetDate:yyyy-MM-dd}",
                 date = targetDate.ToString("yyyy-MM-dd"),
                 delivery_date = targetDate.ToString("yyyy-MM-dd"),
                 language = "fo", // Faroese
@@ -512,9 +534,9 @@ class Program
                     pos = index + 1,
                     product_id = order.product_id,
                     line_text = order.description,
-                    qty = order.qty,
-                    unit_sales_price = order.unit_sales_price,
-                    unit_cost_price = order.unit_cost_price,
+                    qty = order.qty.ToString("F2"),
+                    unit_sales_price = order.unit_sales_price.ToString("F2"),
+                    unit_cost_price = order.unit_cost_price.ToString("F2"),
                     discount_per = order.discount_per
                 }).ToList(),
                 calendar_event_resources = new[]
@@ -563,8 +585,10 @@ class Program
         try
         {
             client.DefaultRequestHeaders.Clear();
-            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
             client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
+            client.DefaultRequestHeaders.Accept.Clear();
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var targetDate = DateTime.UtcNow.AddDays(7);
             var referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
@@ -572,22 +596,20 @@ class Program
             // Prepare the payload for the PATCH request
             var patchPayload = new
             {
-                id = orderId,
                 lead_customer_id = 307480,
                 @ref = referenceValue,
-                title = $"TEST TEST Order {targetDate:yyyy-MM-dd}",
+                title = $"Updated Order {targetDate:yyyy-MM-dd}",
                 date = targetDate.ToString("yyyy-MM-dd"),
                 delivery_date = targetDate.ToString("yyyy-MM-dd"),
                 language = "fo",
-                lines = orderLines.Select((line, index) => new
+                lines = orderLines.Select(line => new
                 {
                     id = line.id,
-                    pos = index + 1,
                     product_id = line.product_id,
                     line_text = line.description,
-                    qty = line.qty,
-                    unit_sales_price = line.unit_sales_price,
-                    unit_cost_price = line.unit_cost_price,
+                    qty = line.qty.ToString("F2"),
+                    unit_sales_price = line.unit_sales_price.ToString("F2"),
+                    unit_cost_price = line.unit_cost_price.ToString("F2"),
                     discount_per = line.discount_per
                 }).ToList(),
                 calendar_event_resources = new[]
