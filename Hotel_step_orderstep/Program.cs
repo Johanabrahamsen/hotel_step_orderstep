@@ -32,6 +32,8 @@ namespace HotelStepOrderStep
         public int ProductId { get; set; }
         public decimal Qty { get; set; }
         public string Description { get; set; }
+
+        public string CalendarText { get; set; } // Added CalendarText property
         public string FlightNumber { get; set; } // Added FlightNumber property
         public decimal UnitSalesPrice { get; set; }
         public decimal UnitCostPrice { get; set; }
@@ -509,6 +511,8 @@ namespace HotelStepOrderStep
                     // Include Flight Number in the Description without duplicating "(flogmatur)"
                     string descriptionWithFlight = $"{groupedMeal.FlightNumber} - {matchingProduct.name} (flogmatur)";
 
+                    string calendarLineTextFlight = $"{groupedMeal.FlightNumber} - Product - {matchingProduct.name}, Quantity - {groupedMeal.TotalQuantity}";
+
                     // Determine if this line requires a calendar event
                     // Example: Only 'Crewmatur' (MealDeliveryCode: 207058) requires an event
                     bool requiresEvent = groupedMeal.MealDeliveryCode == "207058";
@@ -519,6 +523,7 @@ namespace HotelStepOrderStep
                         ProductId = productId,
                         Qty = groupedMeal.TotalQuantity,
                         Description = descriptionWithFlight,
+                        CalendarText = calendarLineTextFlight,
                         FlightNumber = groupedMeal.FlightNumber, // Assigning FlightNumber
                         UnitSalesPrice = unitSalesPrice,
                         UnitCostPrice = unitCostPrice,
@@ -948,7 +953,7 @@ namespace HotelStepOrderStep
                 {
                     new
                     {
-                        title = $"Flight Meals for {targetDate:yyyy-MM-dd} - Flight {line.FlightNumber}",
+                        title = line.CalendarText,
                         start_datetime = $"{targetDate:yyyy-MM-dd}T08:00:00Z",
                         end_datetime = $"{targetDate:yyyy-MM-dd}T20:00:00Z",
                         calendar_event_resource_id = calendarEventResourceId.Value, // Assign the single ID
