@@ -971,7 +971,7 @@ namespace HotelStepOrderStep
                 {
                     id = calendarEventResourceId.Value, // Ensure this is the existing id
                     title = $"Flight Meals for {targetDate:yyyy-MM-dd} - Flights: {flightsList}",
-                    guests = 5, // Example value, adjust as needed
+                    guests = 1, // Example value, adjust as needed
                     start_datetime = $"{targetDate:yyyy-MM-dd}T07:00:00Z", // Example start time
                     end_datetime = $"{targetDate:yyyy-MM-dd}T21:00:00Z", // Example end time
                     calendar_id = 5, // Example value, adjust as needed
