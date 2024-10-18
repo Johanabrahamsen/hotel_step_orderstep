@@ -25,7 +25,7 @@ namespace HotelStepOrderStep
         }
     }
 
-    // Represents a single line item in an order
+    // Represents a single line item in an order (for application logic)
     public class OrderLine
     {
         public int? Id { get; set; }
@@ -35,26 +35,14 @@ namespace HotelStepOrderStep
         public decimal UnitSalesPrice { get; set; }
         public decimal UnitCostPrice { get; set; }
         public decimal? DiscountPer { get; set; }
-
-        // New property to store the specific date for each order line
-        public DateTime Date { get; set; }
-    }
-
-    // Represents an order from OrderStep API
-    public class Order
-    {
-        public int id { get; set; }
-        public string @ref { get; set; }
-        public List<OrderLine> lines { get; set; }
-        public bool deleted { get; set; }
-        public List<CalendarEventResource> calendar_event_resources { get; set; }
-
+        public bool RequiresCalendarEvent { get; set; }
+        public int? CalendarEventResourceId { get; set; } // Added to map to calendar_event_resource_id
     }
 
     // Represents calendar event resources within an order
     public class CalendarEventResource
     {
-        public int? id { get; set; } // Made nullable
+        public int id { get; set; }
         public string title { get; set; }
         public int guests { get; set; }
         public string start_datetime { get; set; }
@@ -64,12 +52,89 @@ namespace HotelStepOrderStep
         public int calendar_category_id { get; set; }
     }
 
+    // Represents an order from OrderStep API
+    public class Order
+    {
+        public int id { get; set; }
+
+        [JsonProperty("ref")]
+        public string Reference { get; set; }
+
+        [JsonProperty("lines")]
+        public List<OrderLineApiModel> Lines { get; set; }
+
+        public bool deleted { get; set; }
+
+        [JsonProperty("calendar_event_resources")]
+        public List<CalendarEventResource> CalendarEventResources { get; set; }
+
+        public string delivery_date { get; set; }
+        // Add other relevant properties as needed
+    }
+
+    // Represents a line item as returned by the API
+    public class OrderLineApiModel
+    {
+        [JsonProperty("id")]
+        public int? Id { get; set; }
+
+        [JsonProperty("product_id")]
+        public int ProductId { get; set; }
+
+        [JsonProperty("qty")]
+        public string Qty { get; set; }
+
+        [JsonProperty("line_text")]
+        public string LineText { get; set; }
+
+        [JsonProperty("unit_sales_price")]
+        public string UnitSalesPrice { get; set; }
+
+        [JsonProperty("unit_cost_price")]
+        public string UnitCostPrice { get; set; }
+
+        [JsonProperty("discount_per")]
+        public decimal? DiscountPer { get; set; }
+
+        [JsonProperty("calender_event_resource_items")]
+        public List<CalendarEventResourceItem> CalenderEventResourceItems { get; set; }
+    }
+
+    // Represents a calendar event resource item within a line
+    public class CalendarEventResourceItem
+    {
+        [JsonProperty("title")]
+        public string Title { get; set; }
+
+        [JsonProperty("start_datetime")]
+        public string StartDatetime { get; set; }
+
+        [JsonProperty("end_datetime")]
+        public string EndDatetime { get; set; }
+
+        [JsonProperty("calendar_event_resource_id")]
+        public int CalendarEventResourceId { get; set; }
+
+        [JsonProperty("hide")]
+        public bool Hide { get; set; }
+    }
 
     // Helper class to deserialize the API response for orders
     public class OrderListResponse
     {
         public List<Order> results { get; set; }
         public string next { get; set; }
+    }
+
+    // Strongly-typed class for meal orders
+    public class MealOrder
+    {
+        public string FlightNumber { get; set; }
+        public DateTime Date { get; set; }
+        public string Type { get; set; }
+        public string MealType { get; set; }
+        public int Quantity { get; set; }
+        public string MealDeliveryCode { get; set; }
     }
 
     class Program
@@ -112,43 +177,41 @@ namespace HotelStepOrderStep
                         {
                             Console.WriteLine("Token retrieval successful!");
 
-                            // Dynamically set the target dates based on the meal data
-                            var groupedByDate = latestMealData.GroupBy(m => DateTime.Parse(m.date.ToString()))
-                                                            .ToDictionary(g => g.Key, g => g.ToList());
+                            // Dynamically set the target date based on the meal data
+                            // Using 'Date' property from MealOrder
+                            DateTime targetDate = latestMealData[0].Date;
+                            string referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
 
                             // Retrieve products from OrderStep API
                             var orderstepProducts = await GetAtlanticAirwaysProducts(token);
 
-                            foreach (var kvp in groupedByDate)
+                            // Compare meal orders with the retrieved products to determine orders to place
+                            var ordersToPlace = CompareAndCalculateOrders(latestMealData, orderstepProducts);
+
+                            if (ordersToPlace.Count > 0)
                             {
-                                DateTime targetDate = kvp.Key;
-                                var ordersForDate = CompareAndCalculateOrders(kvp.Value, orderstepProducts, targetDate);
+                                // Fetch existing order for the target date for comparison
+                                Console.WriteLine($"Fetching existing order for {targetDate:yyyy-MM-dd} from OrderStep API...");
+                                var existingOrder = await FetchExistingOrderData(token, targetDate);
 
-                                if (ordersForDate.Count > 0)
+                                // Check and update orders based on the comparison
+                                bool anyChanges = await CheckAndUpdateOrders(token, ordersToPlace, existingOrder, targetDate, referenceValue);
+
+                                if (anyChanges)
                                 {
-                                    // Fetch existing order for the target date for comparison
-                                    Console.WriteLine($"Fetching existing order for {targetDate:yyyy-MM-dd} from OrderStep API...");
-                                    var existingOrder = await FetchExistingOrderData(token, targetDate);
-
-                                    // Check and update orders based on the comparison
-                                    bool anyChanges = await CheckAndUpdateOrders(token, ordersForDate, existingOrder, targetDate);
-
-                                    if (anyChanges)
-                                    {
-                                        Console.WriteLine("Changes detected, processing order updates.");
-                                        await SendOrderData(token, ordersForDate, existingOrder, targetDate);
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine("No changes detected. Skipping sending new orders.");
-                                    }
-
-                                    Console.WriteLine("Order data processed and updated successfully.");
+                                    Console.WriteLine("Changes detected, processing order updates.");
+                                    await SendOrderData(token, ordersToPlace, existingOrder, targetDate, referenceValue);
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"No valid orders to place for {targetDate:yyyy-MM-dd} after comparison.");
+                                    Console.WriteLine("No changes detected. Skipping sending new orders.");
                                 }
+
+                                Console.WriteLine("Order data processed and updated successfully.");
+                            }
+                            else
+                            {
+                                Console.WriteLine("No valid orders to place after comparison.");
                             }
                         }
                         else
@@ -172,7 +235,7 @@ namespace HotelStepOrderStep
         }
 
         // Method to display meals grouped by flight number
-        public static void DisplayMealsPerFlight(List<dynamic> mealOrders)
+        public static void DisplayMealsPerFlight(List<MealOrder> mealOrders)
         {
             if (mealOrders == null || mealOrders.Count == 0)
             {
@@ -181,8 +244,7 @@ namespace HotelStepOrderStep
             }
 
             var groupedByFlight = mealOrders
-                .Where(m => decimal.TryParse(m.quantity.ToString(), out decimal qty) && qty > 0) // Filter out meals with zero quantity
-                .GroupBy(m => m.flightNumber)
+                .GroupBy(m => m.FlightNumber)
                 .OrderBy(g => g.Key); // Optional: Order flights alphabetically
 
             decimal totalQuantity = 0m;
@@ -195,16 +257,8 @@ namespace HotelStepOrderStep
 
                 foreach (var meal in flightGroup)
                 {
-                    // Safely parse quantity
-                    if (decimal.TryParse(meal.quantity.ToString(), out decimal qty))
-                    {
-                        Console.WriteLine($" - {meal.mealType}: {qty}");
-                        totalQuantity += qty;
-                    }
-                    else
-                    {
-                        Console.WriteLine($" - {meal.mealType}: Invalid quantity");
-                    }
+                    Console.WriteLine($" - {meal.MealType}: {meal.Quantity}");
+                    totalQuantity += meal.Quantity;
                 }
             }
 
@@ -212,10 +266,10 @@ namespace HotelStepOrderStep
         }
 
         // Fetch the latest meal order data from SQL database
-        public static List<dynamic> FetchLatestMealOrderData()
+        public static List<MealOrder> FetchLatestMealOrderData()
         {
             var connectionString = "Server=aa-sql2;Database=PAX_DATA;Integrated Security=True;";
-            var mealOrderDataList = new List<dynamic>();
+            var mealOrderDataList = new List<MealOrder>();
 
             using (SqlConnection connection = new SqlConnection(connectionString))
             {
@@ -226,58 +280,60 @@ namespace HotelStepOrderStep
                     Console.WriteLine("Connected to SQL Server successfully.");
 
                     string query = @"
-                        WITH MealData AS (
-                            SELECT 
-                                d.flight_no as FlúgviNr, 
-                                CAST(d.std as date) as Dato,
-                                CASE 
-                                    WHEN mbmt.OrderType=1 THEN 'Sola'
-                                    WHEN mbmt.OrderType=3 THEN 'Prepaid'
-                                    WHEN mbmt.OrderType=5 THEN 'Crew'
-                                    WHEN mbmt.OrderType=6 OR feo.FlightId IS NOT NULL THEN 'Ekstra'
-                                END as Slag,
-                                mt.Name as MatarSlag, 
-                                mbmt.Quantity, 
-                                ISNULL(feo.NumberOfExtra, 0) as NumberOfExtra,
-                                mt.MealDeliveryCode,
-                                ROW_NUMBER() OVER (PARTITION BY d.flight_no, mt.MealDeliveryCode ORDER BY mbmt.OrderType) as RowNum
-                            FROM 
-                                meal.Flight f
-                            INNER JOIN 
-                                meal.FlightNr fn ON f.FlightNrId = fn.FlightNrId
-                            INNER JOIN 
-                                meal.MealBooking mb ON mb.FlightId = f.FlightId
-                            INNER JOIN 
-                                (SELECT mb1.FlightId, MAX(mb1.MealBookingId) as MealBookingId
-                                 FROM meal.MealBooking mb1
-                                 GROUP BY mb1.FlightId) a ON a.FlightId = f.FlightId
-                            INNER JOIN 
-                                meal.MealBookingMealType mbmt ON mbmt.MealBookingId = mb.MealBookingId
-                            INNER JOIN 
-                                DEPARTURES d ON d.id = f.DepartureId
-                            INNER JOIN 
-                                meal.MealType mt ON mbmt.MealTypeId = mt.MealTypeId
-                            LEFT JOIN 
-                                [PAX_DATA].[Meal].[FlightExtraOrder] feo 
-                                ON feo.FlightId = f.FlightId AND feo.MealTypeId = mbmt.MealTypeId
-                            WHERE 
-                                CAST(f.FlightDate as date) = CAST(DATEADD(day, 7, GETDATE()) as date)
-                            AND 
-                                mb.MealBookingId = a.MealBookingId
-                        )
-                        SELECT 
-                            FlúgviNr, 
-                            Dato,
-                            Slag,
-                            MatarSlag,
-                            SUM(Quantity) + CASE WHEN RowNum = 1 THEN SUM(NumberOfExtra) ELSE 0 END as Antal, 
-                            MealDeliveryCode
-                        FROM 
-                            MealData
-                        GROUP BY 
-                            FlúgviNr, Dato, Slag, MatarSlag, MealDeliveryCode, RowNum
-                        ORDER BY 
-                            2, 1, 3 DESC, 4;
+                WITH MealData AS (
+                    SELECT 
+                        d.flight_no as FlúgviNr, 
+                        CAST(d.std as date) as Dato,
+                        CASE 
+                            WHEN mbmt.OrderType=1 THEN 'Sola'
+                            WHEN mbmt.OrderType=3 THEN 'Prepaid'
+                            WHEN mbmt.OrderType=5 THEN 'Crew'
+                            WHEN mbmt.OrderType=6 OR feo.FlightId IS NOT NULL THEN 'Ekstra'
+                        END as Slag,
+                        mt.Name as MatarSlag, 
+                        mbmt.Quantity, 
+                        ISNULL(feo.NumberOfExtra, 0) as NumberOfExtra,
+                        mt.MealDeliveryCode,
+                        ROW_NUMBER() OVER (PARTITION BY d.flight_no, mt.MealDeliveryCode ORDER BY mbmt.OrderType) as RowNum
+                    FROM 
+                        meal.Flight f
+                    INNER JOIN 
+                        meal.FlightNr fn ON f.FlightNrId = fn.FlightNrId
+                    INNER JOIN 
+                        meal.MealBooking mb ON mb.FlightId = f.FlightId
+                    INNER JOIN 
+                        (SELECT mb1.FlightId, MAX(mb1.MealBookingId) as MealBookingId
+                         FROM meal.MealBooking mb1
+                         GROUP BY mb1.FlightId) a ON a.FlightId = f.FlightId
+                    INNER JOIN 
+                        meal.MealBookingMealType mbmt ON mbmt.MealBookingId = mb.MealBookingId
+                    INNER JOIN 
+                        DEPARTURES d ON d.id = f.DepartureId
+                    INNER JOIN 
+                        meal.MealType mt ON mbmt.MealTypeId = mt.MealTypeId
+                    LEFT JOIN 
+                        [PAX_DATA].[Meal].[FlightExtraOrder] feo 
+                        ON feo.FlightId = f.FlightId AND feo.MealTypeId = mbmt.MealTypeId
+                    WHERE 
+                        CAST(f.FlightDate as date) = CAST(DATEADD(day, 7, GETDATE()) as date)
+                    AND 
+                        mb.MealBookingId = a.MealBookingId
+                )
+                SELECT 
+                    FlúgviNr, 
+                    Dato,
+                    Slag,
+                    MatarSlag,
+                    SUM(Quantity) + CASE WHEN RowNum = 1 THEN SUM(NumberOfExtra) ELSE 0 END as Antal, 
+                    MealDeliveryCode
+                FROM 
+                    MealData
+                GROUP BY 
+                    FlúgviNr, Dato, Slag, MatarSlag, MealDeliveryCode, RowNum
+                HAVING 
+                    SUM(Quantity) + CASE WHEN RowNum = 1 THEN SUM(NumberOfExtra) ELSE 0 END > 0
+                ORDER BY 
+                    2, 1, 3 DESC, 4;
                     ";
 
                     using (SqlCommand command = new SqlCommand(query, connection))
@@ -286,20 +342,27 @@ namespace HotelStepOrderStep
                         {
                             while (reader.Read())
                             {
-                                string formattedDate = DateTime.Parse(reader["Dato"].ToString()).ToString("yyyy-MM-dd");
-
-                                var mealOrderData = new
+                                var mealOrderData = new MealOrder
                                 {
-                                    flightNumber = reader["FlúgviNr"].ToString(),
-                                    date = formattedDate,
-                                    type = reader["Slag"].ToString(),
-                                    mealType = reader["MatarSlag"].ToString(),
-                                    quantity = reader["Antal"].ToString(),
+                                    FlightNumber = reader["FlúgviNr"].ToString(),
+                                    Date = DateTime.Parse(reader["Dato"].ToString()),
+                                    Type = reader["Slag"].ToString(),
+                                    MealType = reader["MatarSlag"].ToString(),
+                                    Quantity = int.Parse(reader["Antal"].ToString()),
                                     MealDeliveryCode = reader["MealDeliveryCode"].ToString()
                                 };
 
-                                mealOrderDataList.Add(mealOrderData);
+                                // Only add if MealDeliveryCode is not empty and quantity > 0
+                                if (!string.IsNullOrWhiteSpace(mealOrderData.MealDeliveryCode) && mealOrderData.Quantity > 0)
+                                {
+                                    mealOrderDataList.Add(mealOrderData);
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Skipped line with FlightNumber: {mealOrderData.FlightNumber}, MealDeliveryCode: {mealOrderData.MealDeliveryCode}, Quantity: {mealOrderData.Quantity}");
+                                }
                             }
+
                         }
                     }
                 }
@@ -315,6 +378,7 @@ namespace HotelStepOrderStep
         // Get Token from OrderStep API
         public static async Task<string> GetToken()
         {
+            // **Verify the correct token endpoint from the API documentation**
             var tokenEndpoint = "https://secure.orderstep.dk/oauth2/token/";
 
             try
@@ -398,18 +462,18 @@ namespace HotelStepOrderStep
         }
 
         // Compare the meal order data with product list and calculate the orders
-        public static List<OrderLine> CompareAndCalculateOrders(List<dynamic> mealOrders, List<dynamic> orderstepProducts, DateTime targetDate)
+        public static List<OrderLine> CompareAndCalculateOrders(List<MealOrder> mealOrders, List<dynamic> orderstepProducts)
         {
             var ordersToPlace = new List<OrderLine>();
 
             var groupedMealOrders = mealOrders
-                .GroupBy(m => new { FlightNumber = m.flightNumber, m.MealDeliveryCode })
+                .GroupBy(m => new { m.FlightNumber, m.MealDeliveryCode })
                 .Select(g => new
                 {
                     FlightNumber = g.Key.FlightNumber,
                     MealDeliveryCode = g.Key.MealDeliveryCode,
-                    TotalQuantity = g.Sum(m => int.Parse(m.quantity)),
-                    Date = DateTime.Parse(g.First().date.ToString())
+                    TotalQuantity = g.Sum(m => m.Quantity),
+                    Date = g.First().Date
                 })
                 .ToList();
 
@@ -441,8 +505,12 @@ namespace HotelStepOrderStep
                     decimal unitSalesPrice = productPrices.ContainsKey(productId) ? productPrices[productId] : 0m;
                     decimal unitCostPrice = 0m; // Set to zero or appropriate value
 
-                    // Include Flight Number in the Description
-                    string descriptionWithFlight = $"{groupedMeal.FlightNumber} - {matchingProduct.name}";
+                    // Include Flight Number in the Description without duplicating "(flogmatur)"
+                    string descriptionWithFlight = $"{groupedMeal.FlightNumber} - {matchingProduct.name} (flogmatur)";
+
+                    // Determine if this line requires a calendar event
+                    // Example: Only 'Crewmatur' (MealDeliveryCode: 207058) requires an event
+                    bool requiresEvent = groupedMeal.MealDeliveryCode == "207058";
 
                     var orderLine = new OrderLine
                     {
@@ -453,7 +521,7 @@ namespace HotelStepOrderStep
                         UnitSalesPrice = unitSalesPrice,
                         UnitCostPrice = unitCostPrice,
                         DiscountPer = null,
-                        Date = groupedMeal.Date // Assign the specific date
+                        RequiresCalendarEvent = requiresEvent
                     };
 
                     ordersToPlace.Add(orderLine);
@@ -462,6 +530,16 @@ namespace HotelStepOrderStep
                 {
                     Console.WriteLine($"No matching product found for MealDeliveryCode: {groupedMeal.MealDeliveryCode}");
                 }
+            }
+
+            // Final filtering to ensure no lines with Qty <= 0 are added (safety net)
+            ordersToPlace = ordersToPlace.Where(o => o.Qty > 0).ToList();
+
+            // Log the orders to place for debugging
+            Console.WriteLine("Orders to Place:");
+            foreach (var order in ordersToPlace)
+            {
+                Console.WriteLine(JsonConvert.SerializeObject(order));
             }
 
             return ordersToPlace;
@@ -492,11 +570,12 @@ namespace HotelStepOrderStep
                     // Iterate through results to find an order with the exact matching ref
                     foreach (var order in jsonResponse.results)
                     {
-                        if (!string.IsNullOrEmpty(order.@ref) && order.@ref == referenceValue)
+                        if (!string.IsNullOrEmpty(order.Reference) && order.Reference == referenceValue)
                         {
                             existingOrder = order;
                             Console.WriteLine("Existing order found:");
                             Console.WriteLine(JsonConvert.SerializeObject(existingOrder, Formatting.Indented));
+
                             break;
                         }
                     }
@@ -522,18 +601,23 @@ namespace HotelStepOrderStep
         }
 
         // Check and update the orders to OrderStep API if there are any changes
-        public static async Task<bool> CheckAndUpdateOrders(string token, List<OrderLine> ordersToPlace, Order existingOrder, DateTime targetDate)
+        public static async Task<bool> CheckAndUpdateOrders(string token, List<OrderLine> ordersToPlace, Order existingOrder, DateTime targetDate, string referenceValue)
         {
             bool anyChanges = false;
 
             if (existingOrder != null && existingOrder.deleted != true)
             {
-                var existingLines = existingOrder.lines ?? new List<OrderLine>();
+                var existingLines = existingOrder.Lines ?? new List<OrderLineApiModel>();
+                var existingCalendarEventResources = existingOrder.CalendarEventResources ?? new List<CalendarEventResource>();
+
+                // Assuming only one calendar_event_resource is needed
+                int? existingCalendarEventResourceId = existingCalendarEventResources.FirstOrDefault()?.id;
+
                 foreach (var orderToPlace in ordersToPlace)
                 {
                     var matchingExistingLine = existingLines.FirstOrDefault(existingLine =>
                         existingLine.ProductId == orderToPlace.ProductId &&
-                        existingLine.Description.StartsWith(orderToPlace.Description.Split('-')[0].Trim())); // Match based on Flight Number
+                        existingLine.LineText.StartsWith(orderToPlace.Description.Split('-')[0].Trim())); // Match based on Flight Number
 
                     if (matchingExistingLine != null)
                     {
@@ -541,19 +625,32 @@ namespace HotelStepOrderStep
                         orderToPlace.Id = matchingExistingLine.Id;
 
                         // Assign existing unit prices and discount
-                        orderToPlace.UnitSalesPrice = matchingExistingLine.UnitSalesPrice;
-                        orderToPlace.UnitCostPrice = matchingExistingLine.UnitCostPrice;
+                        if (decimal.TryParse(matchingExistingLine.UnitSalesPrice, out decimal existingUnitSalesPrice))
+                            orderToPlace.UnitSalesPrice = existingUnitSalesPrice;
+
+                        if (decimal.TryParse(matchingExistingLine.UnitCostPrice, out decimal existingUnitCostPrice))
+                            orderToPlace.UnitCostPrice = existingUnitCostPrice;
+
                         orderToPlace.DiscountPer = matchingExistingLine.DiscountPer;
 
                         // If the line already exists, check for quantity differences
-                        if (matchingExistingLine.Qty != orderToPlace.Qty)
+                        if (decimal.TryParse(matchingExistingLine.Qty, out decimal existingQty))
                         {
-                            Console.WriteLine($"Detected change in order for product {orderToPlace.ProductId} on flight {orderToPlace.Description.Split('-')[0].Trim()}. Updating...");
-                            anyChanges = true;
+                            if (existingQty != orderToPlace.Qty)
+                            {
+                                Console.WriteLine($"Detected change in order for product {orderToPlace.ProductId} on flight {orderToPlace.Description.Split('-')[0].Trim()}. Updating...");
+                                anyChanges = true;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"No changes detected for product {orderToPlace.ProductId} on flight {orderToPlace.Description.Split('-')[0].Trim()}. Skipping update.");
+                            }
                         }
-                        else
+
+                        // Assign the existing calendar_event_resource_id if required
+                        if (orderToPlace.RequiresCalendarEvent && existingCalendarEventResourceId.HasValue)
                         {
-                            Console.WriteLine($"No changes detected for product {orderToPlace.ProductId} on flight {orderToPlace.Description.Split('-')[0].Trim()}. Skipping update.");
+                            orderToPlace.CalendarEventResourceId = existingCalendarEventResourceId.Value;
                         }
                     }
                     else
@@ -575,62 +672,29 @@ namespace HotelStepOrderStep
         }
 
         // Send the orders to OrderStep API (POST new orders or PATCH existing orders)
-        public static async Task SendOrderData(string token, List<OrderLine> ordersToPlace, Order existingOrder, DateTime targetDate)
+        public static async Task SendOrderData(string token, List<OrderLine> ordersToPlace, Order existingOrder, DateTime targetDate, string referenceValue)
         {
             try
             {
                 if (existingOrder != null && existingOrder.deleted != true)
                 {
-                    // Extract existing calendar_event_resource_ids
-                    var existingCalendarEvents = existingOrder.calendar_event_resources ?? new List<CalendarEventResource>();
-
-                    // Prepare new calendar events from order lines
-                    var newCalendarEvents = ordersToPlace.Select(orderLine => new CalendarEventResource
+                    // Extract existing calendar_event_resource_id if available
+                    List<int> existingCalendarEventResourceIds = new List<int>();
+                    if (existingOrder.CalendarEventResources != null && existingOrder.CalendarEventResources.Count > 0)
                     {
-                        title = $"Flogmatur {orderLine.Date:yyyy-MM-dd} - {orderLine.Description}",
-                        guests = 1,
-                        start_datetime = $"{orderLine.Date:yyyy-MM-dd}T08:00:00Z",
-                        end_datetime = $"{orderLine.Date:yyyy-MM-dd}T20:00:00Z",
-                        calendar_id = 5,
-                        calendar_resource_id = 55,
-                        calendar_category_id = 21
-                        // 'id' remains null for new events
-                    }).ToList();
+                        existingCalendarEventResourceIds = existingOrder.CalendarEventResources.Select(c => c.id).ToList();
+                    }
 
-                    // Merge existing and new calendar events
-                    var mergedCalendarEvents = existingCalendarEvents.Select(e => new CalendarEventResource
-                    {
-                        id = e.id,
-                        title = e.title,
-                        guests = e.guests,
-                        start_datetime = e.start_datetime,
-                        end_datetime = e.end_datetime,
-                        calendar_id = e.calendar_id,
-                        calendar_resource_id = e.calendar_resource_id,
-                        calendar_category_id = e.calendar_category_id
-                    }).ToList();
+                    // Determine the original reference and date
+                    string originalReference = existingOrder.Reference;
+                    DateTime originalDate = DateTime.Parse(existingOrder.delivery_date);
 
-                    // Add new calendar events without 'id' (they will be created)
-                    mergedCalendarEvents.AddRange(newCalendarEvents.Select(e => new CalendarEventResource
-                    {
-                        id = null, // No 'id' for new events
-                        title = e.title,
-                        guests = e.guests,
-                        start_datetime = e.start_datetime,
-                        end_datetime = e.end_datetime,
-                        calendar_id = e.calendar_id,
-                        calendar_resource_id = e.calendar_resource_id,
-                        calendar_category_id = e.calendar_category_id
-                    }));
-
-                    // PATCH the existing order with updated lines and merged calendar events
-                    var calendarEventsAsObjects = mergedCalendarEvents.Cast<object>().ToList();
-                    await PatchOrderData(token, ordersToPlace, existingOrder.id, calendarEventsAsObjects);
+                    // PATCH the existing order with new order lines
+                    await PatchOrderData(token, ordersToPlace, existingOrder.id, existingCalendarEventResourceIds, originalDate, originalReference);
                 }
                 else
                 {
                     // Create a new order as it doesn't exist
-                    string referenceValue = $"MealOrder_{targetDate:yyyyMMdd}";
                     await CreateNewOrder(token, ordersToPlace, referenceValue, targetDate);
                 }
             }
@@ -640,8 +704,7 @@ namespace HotelStepOrderStep
             }
         }
 
-
-        // Create a new order
+        // Create a new order (Single method; ensure no duplicates)
         public static async Task CreateNewOrder(string token, List<OrderLine> ordersToPlace, string referenceValue, DateTime targetDate)
         {
             var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_orders/";
@@ -660,7 +723,7 @@ namespace HotelStepOrderStep
                     return;
                 }
 
-                // Prepare the order payload for creating a new order
+                // Prepare the order payload without calendar_event_resource_id in the lines
                 var orderPayload = new
                 {
                     lead_customer_id = 307480, // Atlantic Airways ID
@@ -673,42 +736,32 @@ namespace HotelStepOrderStep
                     {
                         pos = index + 1,
                         product_id = order.ProductId,
-                        line_text = order.Description, // Already includes flightNumber if needed
-                        qty = order.Qty.ToString("F2"), // Ensure qty is formatted correctly
+                        line_text = order.Description,
+                        qty = order.Qty.ToString("F2"),
                         unit_sales_price = order.UnitSalesPrice.ToString("F2"),
                         unit_cost_price = order.UnitCostPrice.ToString("F2"),
-                        discount_per = order.DiscountPer
+                        discount_per = order.DiscountPer,
+                        // Initialize calender_event_resource_items as empty; will populate after PATCH
+                        calender_event_resource_items = new List<object>()
                     }).ToList(),
-                    calendar_event_resources = new List<object>
-                    {
-                        // Main order calendar event
-                        new
-                        {
-                            title = $"Weekly Meal Schedule for {targetDate:yyyy-MM-dd}",
-                            guests = 0,
-                            start_datetime = $"{targetDate:yyyy-MM-dd}T00:00:00Z",
-                            end_datetime = $"{targetDate:yyyy-MM-dd}T23:59:59Z",
-                            calendar_id = 5,
-                            calendar_resource_id = 55,
-                            calendar_category_id = 21
-                        }
-                    }
-                };
 
-                // Add individual calendar events for each OrderLine
-                foreach (var orderLine in ordersToPlace)
-                {
-                    orderPayload.calendar_event_resources.Add(new
-                    {
-                        title = $"Flogmatur {orderLine.Date:yyyy-MM-dd} - {orderLine.Description}",
-                        guests = 1,
-                        start_datetime = $"{orderLine.Date:yyyy-MM-dd}T08:00:00Z",
-                        end_datetime = $"{orderLine.Date:yyyy-MM-dd}T20:00:00Z",
-                        calendar_id = 5,
-                        calendar_resource_id = 55,
-                        calendar_category_id = 21
-                    });
-                }
+                    // Add a single order-level calendar_event_resources if any line requires it
+                    calendar_event_resources = ordersToPlace.Any(o => o.RequiresCalendarEvent)
+                        ? new List<object>
+                        {
+                            new
+                            {
+                                title = $"Order Event for {targetDate:yyyy-MM-dd}",
+                                guests = 5, // Example value, adjust as needed
+                                start_datetime = $"{targetDate:yyyy-MM-dd}T07:00:00Z", // Example start time
+                                end_datetime = $"{targetDate:yyyy-MM-dd}T21:00:00Z", // Example end time
+                                calendar_id = 5, // Example value, adjust as needed
+                                calendar_resource_id = 55, // Example value, adjust as needed
+                                calendar_category_id = 21 // Example value, adjust as needed
+                            }
+                        }
+                        : new List<object>() // Empty list if no lines require calendar events
+                };
 
                 var jsonPayload = JsonConvert.SerializeObject(orderPayload, Formatting.Indented);
                 var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
@@ -721,6 +774,36 @@ namespace HotelStepOrderStep
                 {
                     var responseString = await response.Content.ReadAsStringAsync();
                     Console.WriteLine($"Data successfully sent to OrderStep API: {responseString}");
+
+                    // Retrieve the created order to get calendar_event_resource_id
+                    var createdOrder = await FetchNewlyCreatedOrder(token, referenceValue);
+                    if (createdOrder != null)
+                    {
+                        // Extract all calendar_event_resource_ids from the created order
+                        List<int> calendarEventResourceIds = createdOrder.CalendarEventResources.Select(c => c.id).ToList();
+
+                        // Assign the calendar_event_resource_id to each OrderLine that requires it
+                        foreach (var orderLine in ordersToPlace.Where(o => o.RequiresCalendarEvent))
+                        {
+                            orderLine.CalendarEventResourceId = calendarEventResourceIds.FirstOrDefault();
+                        }
+
+                        // Map the created order's lines to application OrderLines to assign 'id's
+                        foreach (var createdLine in createdOrder.Lines)
+                        {
+                            var matchingOrderLine = ordersToPlace.FirstOrDefault(o =>
+                                o.ProductId == createdLine.ProductId &&
+                                o.Description == createdLine.LineText);
+
+                            if (matchingOrderLine != null)
+                            {
+                                matchingOrderLine.Id = createdLine.Id;
+                            }
+                        }
+
+                        // Now, PATCH the order with the retrieved calendar_event_resource_ids and line 'id's
+                        await PatchOrderData(token, ordersToPlace, createdOrder.id, calendarEventResourceIds, targetDate, referenceValue);
+                    }
                 }
                 else
                 {
@@ -735,8 +818,61 @@ namespace HotelStepOrderStep
             }
         }
 
+        // Fetch the newly created order using its reference value
+        public static async Task<Order> FetchNewlyCreatedOrder(string token, string referenceValue)
+        {
+            var orderEndpoint = "https://secure.orderstep.dk/public/api/v1/sale_orders/";
+            Order newOrder = null;
+
+            try
+            {
+                client.DefaultRequestHeaders.Clear();
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                client.DefaultRequestHeaders.Add("X-ORGANIZATION-ID", organizationId);
+
+                var requestUrl = $"{orderEndpoint}?ref={Uri.EscapeDataString(referenceValue)}";
+
+                HttpResponseMessage response = await SendWithRetryAsync(() => client.GetAsync(requestUrl));
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseString = await response.Content.ReadAsStringAsync();
+                    var jsonResponse = JsonConvert.DeserializeObject<OrderListResponse>(responseString);
+
+                    // Iterate through results to find an order with the exact matching ref
+                    foreach (var order in jsonResponse.results)
+                    {
+                        if (!string.IsNullOrEmpty(order.Reference) && order.Reference == referenceValue)
+                        {
+                            newOrder = order;
+                            Console.WriteLine("Newly created order found:");
+                            Console.WriteLine(JsonConvert.SerializeObject(newOrder, Formatting.Indented));
+                            break;
+                        }
+                    }
+
+                    if (newOrder == null)
+                    {
+                        Console.WriteLine("No newly created order found with the specified reference.");
+                    }
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Failed to fetch newly created order. HTTP Status: {response.StatusCode}");
+                    Console.WriteLine($"Error Details: {errorContent}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception occurred while fetching newly created order: {ex.Message}");
+            }
+
+            return newOrder;
+        }
+
         // PATCH the order data to OrderStep API if changes are detected
-        public static async Task PatchOrderData(string token, List<OrderLine> orderLines, int orderId, List<object> existingCalendarEvents)
+        public static async Task PatchOrderData(string token, List<OrderLine> orderLines, int orderId, List<int> calendarEventResourceIds, DateTime targetDate, string referenceValue)
         {
             var patchEndpoint = $"https://secure.orderstep.dk/public/api/v1/sale_orders/{orderId}/";
 
@@ -748,19 +884,17 @@ namespace HotelStepOrderStep
                 client.DefaultRequestHeaders.Accept.Clear();
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // Prepare the payload for the PATCH request
+                // Ensure there is only one calendar_event_resource_id
+                int? calendarEventResourceId = calendarEventResourceIds.FirstOrDefault();
+
+                // Prepare the payload for the PATCH request using original targetDate and referenceValue
                 var patchPayload = new
                 {
-                    // Keep the existing @ref without modification
-                    @ref = $"MealOrder_{DateTime.UtcNow:yyyyMMdd}", // Ensure @ref remains consistent if required
-
-                    // It's unclear whether 'date' and 'delivery_date' should be updated or kept as-is
-                    // Assuming they represent the week, we'll keep them as-is or set to targetDate
-
-                    // Adjust 'date' and 'delivery_date' as per your requirements
-                    // Here, we're setting them to the targetDate, but you might need to adjust accordingly
-                    date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
-                    delivery_date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                    lead_customer_id = 307480,
+                    @ref = referenceValue, // Use original reference
+                    title = $"Updated Order {targetDate:yyyy-MM-dd}",
+                    date = targetDate.ToString("yyyy-MM-dd"),
+                    delivery_date = targetDate.ToString("yyyy-MM-dd"),
                     language = "fo",
                     lines = orderLines.Select(line => new
                     {
@@ -770,18 +904,42 @@ namespace HotelStepOrderStep
                         qty = line.Qty.ToString("F2"),
                         unit_sales_price = line.UnitSalesPrice.ToString("F2"),
                         unit_cost_price = line.UnitCostPrice.ToString("F2"),
-                        discount_per = line.DiscountPer
-                    }).ToList(),
-                    calendar_event_resources = existingCalendarEvents.Concat(orderLines.Select(orderLine => new
-                    {
-                        title = $"Flogmatur {orderLine.Date:yyyy-MM-dd} - {orderLine.Description}",
-                        guests = 1,
-                        start_datetime = $"{orderLine.Date:yyyy-MM-dd}T08:00:00Z",
-                        end_datetime = $"{orderLine.Date:yyyy-MM-dd}T20:00:00Z",
-                        calendar_id = 5,
-                        calendar_resource_id = 55,
-                        calendar_category_id = 21
-                    })).ToArray()
+                        discount_per = line.DiscountPer,
+                        // Include calender_event_resource_items if required
+                        calender_event_resource_items = line.RequiresCalendarEvent && calendarEventResourceId.HasValue
+                            ? new List<object>
+                            {
+                                new
+                                {
+                                    title = $"Flogmatur {line.Description.Split('-')[0].Trim()}",
+                                    start_datetime = $"{targetDate:yyyy-MM-dd}T08:00:00Z",
+                                    end_datetime = $"{targetDate:yyyy-MM-dd}T20:00:00Z",
+                                    calendar_event_resource_id = calendarEventResourceId.Value, // Correctly assign the ID
+                                    hide = false
+                                }
+                            }
+                            : new List<object>() // Empty list for lines not needing events
+                    })
+                    .Where(line => line.id.HasValue) // Ensure 'id' is not null
+                    .ToList(),
+
+                    // Add or Update the order-level calendar_event_resources
+                    calendar_event_resources = calendarEventResourceId.HasValue
+                        ? new List<object>
+                        {
+                            new
+                            {
+                                id = calendarEventResourceId.Value, // Ensure this is the existing id
+                                title = $"Order Event for {targetDate:yyyy-MM-dd}",
+                                guests = 5, // Example value, adjust as needed
+                                start_datetime = $"{targetDate:yyyy-MM-dd}T07:00:00Z", // Example start time
+                                end_datetime = $"{targetDate:yyyy-MM-dd}T21:00:00Z", // Example end time
+                                calendar_id = 5, // Example value, adjust as needed
+                                calendar_resource_id = 55, // Example value, adjust as needed
+                                calendar_category_id = 21 // Example value, adjust as needed
+                            }
+                        }
+                        : new List<object>() // Empty list if no existing calendar events
                 };
 
                 Console.WriteLine("PATCH payload:");

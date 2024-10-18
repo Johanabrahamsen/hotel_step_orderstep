@@ -1,0 +1,515 @@
+Sending payload to OrderStep API:
+{
+  "lead_customer_id": 307480,
+  "ref": "MealOrder_20241024",
+  "title": "Meal Order for 2024-10-24",
+  "date": "2024-10-24",
+  "delivery_date": "2024-10-24",
+  "language": "fo",
+  "lines": [
+    {
+      "pos": 1,
+      "product_id": 207056,
+      "line_text": "RC 0414 - Tvíflís (flogmatur)",
+      "qty": "8.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 2,
+      "product_id": 207058,
+      "line_text": "RC 0414 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0414 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 3,
+      "product_id": 207056,
+      "line_text": "RC 0415 - Tvíflís (flogmatur)",
+      "qty": "5.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 4,
+      "product_id": 207057,
+      "line_text": "RC 0450 - Smyrjibreyd (flogmatur)",
+      "qty": "4.00",
+      "unit_sales_price": "48.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 5,
+      "product_id": 207056,
+      "line_text": "RC 0450 - Tvíflís (flogmatur)",
+      "qty": "10.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 6,
+      "product_id": 207059,
+      "line_text": "RC 0450 - Morgunmatur (flogmatur)",
+      "qty": "3.00",
+      "unit_sales_price": "50.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 7,
+      "product_id": 207058,
+      "line_text": "RC 0450 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0450 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 8,
+      "product_id": 207057,
+      "line_text": "RC 0453 - Smyrjibreyd (flogmatur)",
+      "qty": "3.00",
+      "unit_sales_price": "48.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 9,
+      "product_id": 207056,
+      "line_text": "RC 0453 - Tvíflís (flogmatur)",
+      "qty": "5.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 10,
+      "product_id": 207058,
+      "line_text": "RC 0453 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0453 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 11,
+      "product_id": 207056,
+      "line_text": "RC 0456 - Tvíflís (flogmatur)",
+      "qty": "10.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 12,
+      "product_id": 207057,
+      "line_text": "RC 0456 - Smyrjibreyd (flogmatur)",
+      "qty": "2.00",
+      "unit_sales_price": "48.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 13,
+      "product_id": 207058,
+      "line_text": "RC 0456 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0456 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 14,
+      "product_id": 207056,
+      "line_text": "RC 0458 - Tvíflís (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 15,
+      "product_id": 207061,
+      "line_text": "RC 0458 - Vegan (flogmatur)",
+      "qty": "1.00",
+      "unit_sales_price": "60.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 16,
+      "product_id": 207058,
+      "line_text": "RC 0458 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0458 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 17,
+      "product_id": 207057,
+      "line_text": "RC 0459 - Smyrjibreyd (flogmatur)",
+      "qty": "3.00",
+      "unit_sales_price": "48.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 18,
+      "product_id": 207056,
+      "line_text": "RC 0459 - Tvíflís (flogmatur)",
+      "qty": "8.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 19,
+      "product_id": 207060,
+      "line_text": "RC 0459 - Barnamatur (flogmatur)",
+      "qty": "1.00",
+      "unit_sales_price": "40.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 20,
+      "product_id": 207061,
+      "line_text": "RC 0459 - Vegan (flogmatur)",
+      "qty": "1.00",
+      "unit_sales_price": "60.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 21,
+      "product_id": 207058,
+      "line_text": "RC 0459 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0459 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 22,
+      "product_id": 207057,
+      "line_text": "RC 0470 - Smyrjibreyd (flogmatur)",
+      "qty": "1.00",
+      "unit_sales_price": "48.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 23,
+      "product_id": 207056,
+      "line_text": "RC 0470 - Tvíflís (flogmatur)",
+      "qty": "13.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 24,
+      "product_id": 207060,
+      "line_text": "RC 0470 - Barnamatur (flogmatur)",
+      "qty": "8.00",
+      "unit_sales_price": "40.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 25,
+      "product_id": 207059,
+      "line_text": "RC 0470 - Morgunmatur (flogmatur)",
+      "qty": "13.00",
+      "unit_sales_price": "50.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 26,
+      "product_id": 207058,
+      "line_text": "RC 0470 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0470 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 27,
+      "product_id": 207057,
+      "line_text": "RC 0471 - Smyrjibreyd (flogmatur)",
+      "qty": "2.00",
+      "unit_sales_price": "48.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 28,
+      "product_id": 207056,
+      "line_text": "RC 0471 - Tvíflís (flogmatur)",
+      "qty": "7.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 29,
+      "product_id": 207060,
+      "line_text": "RC 0471 - Barnamatur (flogmatur)",
+      "qty": "2.00",
+      "unit_sales_price": "40.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 30,
+      "product_id": 207058,
+      "line_text": "RC 0471 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0471 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 31,
+      "product_id": 207056,
+      "line_text": "RC 0498 - Tvíflís (flogmatur)",
+      "qty": "5.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 32,
+      "product_id": 207062,
+      "line_text": "RC 0498 - Sól morgunmatur (flogmatur)",
+      "qty": "15.00",
+      "unit_sales_price": "75.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 33,
+      "product_id": 207065,
+      "line_text": "RC 0498 - Sól vegan (flogmatur)",
+      "qty": "1.00",
+      "unit_sales_price": "75.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 34,
+      "product_id": 207058,
+      "line_text": "RC 0498 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0498 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    },
+    {
+      "pos": 35,
+      "product_id": 207060,
+      "line_text": "RC 0499 - Barnamatur (flogmatur)",
+      "qty": "39.00",
+      "unit_sales_price": "40.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 36,
+      "product_id": 207056,
+      "line_text": "RC 0499 - Tvíflís (flogmatur)",
+      "qty": "29.00",
+      "unit_sales_price": "44.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 37,
+      "product_id": 207064,
+      "line_text": "RC 0499 - Sól barnamatur (flogmatur)",
+      "qty": "17.00",
+      "unit_sales_price": "65.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 38,
+      "product_id": 207062,
+      "line_text": "RC 0499 - Sól morgunmatur (flogmatur)",
+      "qty": "20.00",
+      "unit_sales_price": "75.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 39,
+      "product_id": 207063,
+      "line_text": "RC 0499 - Sól smyrjibreyd (flogmatur)",
+      "qty": "16.00",
+      "unit_sales_price": "75.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 40,
+      "product_id": 207065,
+      "line_text": "RC 0499 - Sól vegan (flogmatur)",
+      "qty": "8.00",
+      "unit_sales_price": "75.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": []
+    },
+    {
+      "pos": 41,
+      "product_id": 207058,
+      "line_text": "RC 0499 - Crewmatur (flogmatur)",
+      "qty": "6.00",
+      "unit_sales_price": "43.00",
+      "unit_cost_price": "0.00",
+      "discount_per": null,
+      "calender_event_resource_items": [
+        {
+          "title": "Flogmatur 2024-10-24 - RC 0499 - Crewmatur (flogmatur)",
+          "start_datetime": "2024-10-24T08:00:00Z",
+          "end_datetime": "2024-10-24T20:00:00Z",
+          "hide": true,
+          "calendar_event_resource_id": 107
+        }
+      ]
+    }
+  ],
+  "calendar_event_resources": [
+    {
+      "title": "Order Event for 2024-10-24",
+      "guests": 5,
+      "start_datetime": "2024-10-24T07:00:00Z",
+      "end_datetime": "2024-10-24T21:00:00Z",
+      "calendar_id": 5,
+      "calendar_resource_id": 55,
+      "calendar_category_id": 21
+    }
+  ]
+}
+Failed to send data to OrderStep API. HTTP Status: BadRequest
+Error Details: {"errors":{"lines":[{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]},{},{},{},{},{},{},{"calender_event_resource_items":[{"calendar_event_resource_id":["Event resource ID does not exist"]}]}]}}
+Order data processed and updated successfully.
