@@ -32,11 +32,12 @@ namespace HotelStepOrderStep
         public int ProductId { get; set; }
         public decimal Qty { get; set; }
         public string Description { get; set; }
+        public string FlightNumber { get; set; } // Added FlightNumber property
         public decimal UnitSalesPrice { get; set; }
         public decimal UnitCostPrice { get; set; }
         public decimal? DiscountPer { get; set; }
         public bool RequiresCalendarEvent { get; set; }
-        public int? CalendarEventResourceId { get; set; } // Added to map to calendar_event_resource_id
+        public int? CalendarEventResourceId { get; set; } // To map to calendar_event_resource_id
     }
 
     // Represents calendar event resources within an order
@@ -96,8 +97,8 @@ namespace HotelStepOrderStep
         [JsonProperty("discount_per")]
         public decimal? DiscountPer { get; set; }
 
-        [JsonProperty("calender_event_resource_items")]
-        public List<CalendarEventResourceItem> CalenderEventResourceItems { get; set; }
+        [JsonProperty("calendar_event_resource_items")]
+        public List<CalendarEventResourceItem> CalendarEventResourceItems { get; set; }
     }
 
     // Represents a calendar event resource item within a line
@@ -518,6 +519,7 @@ namespace HotelStepOrderStep
                         ProductId = productId,
                         Qty = groupedMeal.TotalQuantity,
                         Description = descriptionWithFlight,
+                        FlightNumber = groupedMeal.FlightNumber, // Assigning FlightNumber
                         UnitSalesPrice = unitSalesPrice,
                         UnitCostPrice = unitCostPrice,
                         DiscountPer = null,
@@ -610,14 +612,15 @@ namespace HotelStepOrderStep
                 var existingLines = existingOrder.Lines ?? new List<OrderLineApiModel>();
                 var existingCalendarEventResources = existingOrder.CalendarEventResources ?? new List<CalendarEventResource>();
 
-                // Assuming only one calendar_event_resource is needed
+                // Since we're using only one calendar_event_resource, get its ID
                 int? existingCalendarEventResourceId = existingCalendarEventResources.FirstOrDefault()?.id;
 
                 foreach (var orderToPlace in ordersToPlace)
                 {
+                    var flightNumber = orderToPlace.FlightNumber;
                     var matchingExistingLine = existingLines.FirstOrDefault(existingLine =>
                         existingLine.ProductId == orderToPlace.ProductId &&
-                        existingLine.LineText.StartsWith(orderToPlace.Description.Split('-')[0].Trim())); // Match based on Flight Number
+                        existingLine.LineText.StartsWith(flightNumber, StringComparison.OrdinalIgnoreCase));
 
                     if (matchingExistingLine != null)
                     {
@@ -638,25 +641,33 @@ namespace HotelStepOrderStep
                         {
                             if (existingQty != orderToPlace.Qty)
                             {
-                                Console.WriteLine($"Detected change in order for product {orderToPlace.ProductId} on flight {orderToPlace.Description.Split('-')[0].Trim()}. Updating...");
+                                Console.WriteLine($"Detected change in order for product {orderToPlace.ProductId} on flight {flightNumber}. Updating...");
                                 anyChanges = true;
                             }
                             else
                             {
-                                Console.WriteLine($"No changes detected for product {orderToPlace.ProductId} on flight {orderToPlace.Description.Split('-')[0].Trim()}. Skipping update.");
+                                Console.WriteLine($"No changes detected for product {orderToPlace.ProductId} on flight {flightNumber}. Skipping update.");
                             }
                         }
 
                         // Assign the existing calendar_event_resource_id if required
-                        if (orderToPlace.RequiresCalendarEvent && existingCalendarEventResourceId.HasValue)
+                        if (orderToPlace.RequiresCalendarEvent)
                         {
-                            orderToPlace.CalendarEventResourceId = existingCalendarEventResourceId.Value;
+                            if (existingCalendarEventResourceId.HasValue)
+                            {
+                                orderToPlace.CalendarEventResourceId = existingCalendarEventResourceId.Value;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"No calendar_event_resource_id found for FlightNumber: {flightNumber}. Will need to create a new one.");
+                                anyChanges = true; // Mark as changed to handle resource creation
+                            }
                         }
                     }
                     else
                     {
                         // New product line to add
-                        Console.WriteLine($"New product found: {orderToPlace.ProductId} for flight {orderToPlace.Description.Split('-')[0].Trim()}. Marking for addition.");
+                        Console.WriteLine($"New product found: {orderToPlace.ProductId} for flight {orderToPlace.FlightNumber}. Marking for addition.");
                         anyChanges = true;
                     }
                 }
@@ -723,7 +734,27 @@ namespace HotelStepOrderStep
                     return;
                 }
 
-                // Prepare the order payload without calendar_event_resource_id in the lines
+                // Check if any order lines require a calendar event
+                bool anyLineRequiresCalendarEvent = ordersToPlace.Any(o => o.RequiresCalendarEvent);
+
+                // Prepare a single calendar_event_resource if needed
+                object calendarEventResourcePayload = anyLineRequiresCalendarEvent
+                    ? new List<object>
+                    {
+                        new
+                        {
+                            title = $"Flight Meals for {targetDate:yyyy-MM-dd}",
+                            guests = 5, // Example value, adjust as needed
+                            start_datetime = $"{targetDate:yyyy-MM-dd}T07:00:00Z", // Example start time
+                            end_datetime = $"{targetDate:yyyy-MM-dd}T21:00:00Z", // Example end time
+                            calendar_id = 5, // Example value, adjust as needed
+                            calendar_resource_id = 55, // Example value, adjust as needed
+                            calendar_category_id = 21 // Example value, adjust as needed
+                        }
+                    }
+                    : new List<object>(); // Empty list if no lines require calendar events
+
+                // Prepare the order payload
                 var orderPayload = new
                 {
                     lead_customer_id = 307480, // Atlantic Airways ID
@@ -741,26 +772,12 @@ namespace HotelStepOrderStep
                         unit_sales_price = order.UnitSalesPrice.ToString("F2"),
                         unit_cost_price = order.UnitCostPrice.ToString("F2"),
                         discount_per = order.DiscountPer,
-                        // Initialize calender_event_resource_items as empty; will populate after PATCH
-                        calender_event_resource_items = new List<object>()
+                        // Initialize calendar_event_resource_items as empty; will populate after PATCH
+                        calendar_event_resource_items = new List<object>()
                     }).ToList(),
 
-                    // Add a single order-level calendar_event_resources if any line requires it
-                    calendar_event_resources = ordersToPlace.Any(o => o.RequiresCalendarEvent)
-                        ? new List<object>
-                        {
-                            new
-                            {
-                                title = $"Order Event for {targetDate:yyyy-MM-dd}",
-                                guests = 5, // Example value, adjust as needed
-                                start_datetime = $"{targetDate:yyyy-MM-dd}T07:00:00Z", // Example start time
-                                end_datetime = $"{targetDate:yyyy-MM-dd}T21:00:00Z", // Example end time
-                                calendar_id = 5, // Example value, adjust as needed
-                                calendar_resource_id = 55, // Example value, adjust as needed
-                                calendar_category_id = 21 // Example value, adjust as needed
-                            }
-                        }
-                        : new List<object>() // Empty list if no lines require calendar events
+                    // Add the single calendar_event_resource if any line requires it
+                    calendar_event_resources = calendarEventResourcePayload
                 };
 
                 var jsonPayload = JsonConvert.SerializeObject(orderPayload, Formatting.Indented);
@@ -779,13 +796,20 @@ namespace HotelStepOrderStep
                     var createdOrder = await FetchNewlyCreatedOrder(token, referenceValue);
                     if (createdOrder != null)
                     {
-                        // Extract all calendar_event_resource_ids from the created order
-                        List<int> calendarEventResourceIds = createdOrder.CalendarEventResources.Select(c => c.id).ToList();
+                        // Extract the single calendar_event_resource_id
+                        int? calendarEventResourceId = createdOrder.CalendarEventResources.FirstOrDefault()?.id;
 
-                        // Assign the calendar_event_resource_id to each OrderLine that requires it
-                        foreach (var orderLine in ordersToPlace.Where(o => o.RequiresCalendarEvent))
+                        if (calendarEventResourceId.HasValue)
                         {
-                            orderLine.CalendarEventResourceId = calendarEventResourceIds.FirstOrDefault();
+                            // Assign the same calendar_event_resource_id to all lines that require it
+                            foreach (var orderLine in ordersToPlace.Where(o => o.RequiresCalendarEvent))
+                            {
+                                orderLine.CalendarEventResourceId = calendarEventResourceId.Value;
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine("No calendar_event_resource_id found in the created order.");
                         }
 
                         // Map the created order's lines to application OrderLines to assign 'id's
@@ -801,8 +825,8 @@ namespace HotelStepOrderStep
                             }
                         }
 
-                        // Now, PATCH the order with the retrieved calendar_event_resource_ids and line 'id's
-                        await PatchOrderData(token, ordersToPlace, createdOrder.id, calendarEventResourceIds, targetDate, referenceValue);
+                        // Now, PATCH the order with the retrieved calendar_event_resource_id and line 'id's
+                        await PatchOrderData(token, ordersToPlace, createdOrder.id, new List<int> { calendarEventResourceId.Value }, targetDate, referenceValue);
                     }
                 }
                 else
@@ -884,18 +908,32 @@ namespace HotelStepOrderStep
                 client.DefaultRequestHeaders.Accept.Clear();
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // Ensure there is only one calendar_event_resource_id
+                // Since we are using only one calendar_event_resource, ensure only one ID exists
                 int? calendarEventResourceId = calendarEventResourceIds.FirstOrDefault();
+
+                if (!calendarEventResourceId.HasValue)
+                {
+                    Console.WriteLine("No calendar_event_resource_id available for assignment.");
+                    return;
+                }
+
+                Console.WriteLine($"Assigning Calendar Event Resource ID: {calendarEventResourceId.Value} to all lines.");
+
+                // Extract unique flight numbers
+                var flightNumbers = orderLines.Select(o => o.FlightNumber).Distinct().ToList();
+                string flightsList = string.Join(", ", flightNumbers);
 
                 // Prepare the payload for the PATCH request using original targetDate and referenceValue
                 var patchPayload = new
                 {
                     lead_customer_id = 307480,
                     @ref = referenceValue, // Use original reference
-                    title = $"Updated Order {targetDate:yyyy-MM-dd}",
+                    title = $"Flight Meals for {targetDate:yyyy-MM-dd} - Flights: {flightsList}",
                     date = targetDate.ToString("yyyy-MM-dd"),
                     delivery_date = targetDate.ToString("yyyy-MM-dd"),
                     language = "fo",
+                    currency_code = "DKK", // **Added currency_code here**
+
                     lines = orderLines.Select(line => new
                     {
                         id = line.Id,
@@ -905,41 +943,37 @@ namespace HotelStepOrderStep
                         unit_sales_price = line.UnitSalesPrice.ToString("F2"),
                         unit_cost_price = line.UnitCostPrice.ToString("F2"),
                         discount_per = line.DiscountPer,
-                        // Include calender_event_resource_items if required
-                        calender_event_resource_items = line.RequiresCalendarEvent && calendarEventResourceId.HasValue
-                            ? new List<object>
-                            {
-                                new
-                                {
-                                    title = $"Flogmatur {line.Description.Split('-')[0].Trim()}",
-                                    start_datetime = $"{targetDate:yyyy-MM-dd}T08:00:00Z",
-                                    end_datetime = $"{targetDate:yyyy-MM-dd}T20:00:00Z",
-                                    calendar_event_resource_id = calendarEventResourceId.Value, // Correctly assign the ID
-                                    hide = false
-                                }
-                            }
-                            : new List<object>() // Empty list for lines not needing events
+                        // **Unconditionally assign calender_event_resource_items to all lines with flight number in title**
+                        calender_event_resource_items = new List<object>
+                {
+                    new
+                    {
+                        title = $"Flight Meals for {targetDate:yyyy-MM-dd} - Flight {line.FlightNumber}",
+                        start_datetime = $"{targetDate:yyyy-MM-dd}T08:00:00Z",
+                        end_datetime = $"{targetDate:yyyy-MM-dd}T20:00:00Z",
+                        calendar_event_resource_id = calendarEventResourceId.Value, // Assign the single ID
+                        hide = false
+                    }
+                }
                     })
                     .Where(line => line.id.HasValue) // Ensure 'id' is not null
                     .ToList(),
 
-                    // Add or Update the order-level calendar_event_resources
-                    calendar_event_resources = calendarEventResourceId.HasValue
-                        ? new List<object>
-                        {
-                            new
-                            {
-                                id = calendarEventResourceId.Value, // Ensure this is the existing id
-                                title = $"Order Event for {targetDate:yyyy-MM-dd}",
-                                guests = 5, // Example value, adjust as needed
-                                start_datetime = $"{targetDate:yyyy-MM-dd}T07:00:00Z", // Example start time
-                                end_datetime = $"{targetDate:yyyy-MM-dd}T21:00:00Z", // Example end time
-                                calendar_id = 5, // Example value, adjust as needed
-                                calendar_resource_id = 55, // Example value, adjust as needed
-                                calendar_category_id = 21 // Example value, adjust as needed
-                            }
-                        }
-                        : new List<object>() // Empty list if no existing calendar events
+                    // Add the single calendar_event_resource
+                    calendar_event_resources = new List<object>
+            {
+                new
+                {
+                    id = calendarEventResourceId.Value, // Ensure this is the existing id
+                    title = $"Flight Meals for {targetDate:yyyy-MM-dd} - Flights: {flightsList}",
+                    guests = 5, // Example value, adjust as needed
+                    start_datetime = $"{targetDate:yyyy-MM-dd}T07:00:00Z", // Example start time
+                    end_datetime = $"{targetDate:yyyy-MM-dd}T21:00:00Z", // Example end time
+                    calendar_id = 5, // Example value, adjust as needed
+                    calendar_resource_id = 55, // Example value, adjust as needed
+                    calendar_category_id = 21 // Example value, adjust as needed
+                }
+            }
                 };
 
                 Console.WriteLine("PATCH payload:");
@@ -967,6 +1001,8 @@ namespace HotelStepOrderStep
                 Console.WriteLine($"Exception occurred while patching the order: {ex.Message}");
             }
         }
+
+
 
         // Send HTTP requests with retry logic for handling rate limiting
         public static async Task<HttpResponseMessage> SendWithRetryAsync(Func<Task<HttpResponseMessage>> sendRequest, int maxRetries = 5, int initialDelaySeconds = 1)
