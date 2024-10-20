@@ -283,60 +283,88 @@ namespace HotelStepOrderStep
                     Console.WriteLine("Connected to SQL Server successfully.");
 
                     string query = @"
-                WITH MealData AS (
+                    WITH MealData AS (
+                        SELECT 
+                            d.flight_no AS FlúgviNr, 
+                            CAST(d.std AS DATE) AS Dato,
+                            CASE 
+                                WHEN mbmt.OrderType = 1 THEN 'Sola'
+                                WHEN mbmt.OrderType = 3 THEN 'Prepaid'
+                                WHEN mbmt.OrderType = 5 THEN 'Crew'
+                                WHEN mbmt.OrderType = 6 OR feo.FlightId IS NOT NULL THEN 'Ekstra'
+                            END AS Slag,
+                            mt.Name AS MatarSlag, 
+                            mbmt.Quantity, 
+                            ISNULL(feo.NumberOfExtra, 0) AS NumberOfExtra,
+                            mt.MealDeliveryCode,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY d.flight_no, mt.MealDeliveryCode, 
+                                             CASE 
+                                                 WHEN mbmt.OrderType = 1 THEN 'Sola'
+                                                 WHEN mbmt.OrderType = 3 THEN 'Prepaid'
+                                                 WHEN mbmt.OrderType = 5 THEN 'Crew'
+                                                 WHEN mbmt.OrderType = 6 OR feo.FlightId IS NOT NULL THEN 'Ekstra'
+                                             END
+                                ORDER BY mbmt.OrderType
+                            ) AS RowNum
+                        FROM 
+                            meal.Flight f
+                        INNER JOIN 
+                            meal.FlightNr fn ON f.FlightNrId = fn.FlightNrId
+                        INNER JOIN 
+                            meal.MealBooking mb ON mb.FlightId = f.FlightId
+                        INNER JOIN 
+                            (
+                                SELECT 
+                                    FlightId, 
+                                    MAX(MealBookingId) AS MealBookingId
+                                FROM 
+                                    meal.MealBooking
+                                GROUP BY 
+                                    FlightId
+                            ) a ON a.FlightId = f.FlightId
+                        INNER JOIN 
+                            meal.MealBookingMealType mbmt ON mbmt.MealBookingId = mb.MealBookingId
+                        INNER JOIN 
+                            DEPARTURES d ON d.id = f.DepartureId
+                        INNER JOIN 
+                            meal.MealType mt ON mbmt.MealTypeId = mt.MealTypeId
+                        LEFT JOIN 
+                            [PAX_DATA].[Meal].[FlightExtraOrder] feo 
+                            ON feo.FlightId = f.FlightId AND feo.MealTypeId = mbmt.MealTypeId
+                        WHERE 
+                            CAST(f.FlightDate AS DATE) = CAST(DATEADD(day, 2, GETDATE()) AS DATE)
+                        AND 
+                            mb.MealBookingId = a.MealBookingId
+                    )
                     SELECT 
-                        d.flight_no as FlúgviNr, 
-                        CAST(d.std as date) as Dato,
-                        CASE 
-                            WHEN mbmt.OrderType=1 THEN 'Sola'
-                            WHEN mbmt.OrderType=3 THEN 'Prepaid'
-                            WHEN mbmt.OrderType=5 THEN 'Crew'
-                            WHEN mbmt.OrderType=6 OR feo.FlightId IS NOT NULL THEN 'Ekstra'
-                        END as Slag,
-                        mt.Name as MatarSlag, 
-                        mbmt.Quantity, 
-                        ISNULL(feo.NumberOfExtra, 0) as NumberOfExtra,
-                        mt.MealDeliveryCode,
-                        ROW_NUMBER() OVER (PARTITION BY d.flight_no, mt.MealDeliveryCode ORDER BY mbmt.OrderType) as RowNum
+                        FlúgviNr, 
+                        Dato,
+                        Slag,
+                        MatarSlag,
+                        SUM(
+                            CASE 
+                                WHEN Slag = 'Ekstra' THEN NumberOfExtra
+                                ELSE Quantity
+                            END
+                        ) AS Antal, 
+                        MealDeliveryCode
                     FROM 
-                        meal.Flight f
-                    INNER JOIN 
-                        meal.FlightNr fn ON f.FlightNrId = fn.FlightNrId
-                    INNER JOIN 
-                        meal.MealBooking mb ON mb.FlightId = f.FlightId
-                    INNER JOIN 
-                        (SELECT mb1.FlightId, MAX(mb1.MealBookingId) as MealBookingId
-                         FROM meal.MealBooking mb1
-                         GROUP BY mb1.FlightId) a ON a.FlightId = f.FlightId
-                    INNER JOIN 
-                        meal.MealBookingMealType mbmt ON mbmt.MealBookingId = mb.MealBookingId
-                    INNER JOIN 
-                        DEPARTURES d ON d.id = f.DepartureId
-                    INNER JOIN 
-                        meal.MealType mt ON mbmt.MealTypeId = mt.MealTypeId
-                    LEFT JOIN 
-                        [PAX_DATA].[Meal].[FlightExtraOrder] feo 
-                        ON feo.FlightId = f.FlightId AND feo.MealTypeId = mbmt.MealTypeId
+                        MealData
                     WHERE 
-                        CAST(f.FlightDate as date) = CAST(DATEADD(day, 7, GETDATE()) as date)
-                    AND 
-                        mb.MealBookingId = a.MealBookingId
-                )
-                SELECT 
-                    FlúgviNr, 
-                    Dato,
-                    Slag,
-                    MatarSlag,
-                    SUM(Quantity) + CASE WHEN RowNum = 1 THEN SUM(NumberOfExtra) ELSE 0 END as Antal, 
-                    MealDeliveryCode
-                FROM 
-                    MealData
-                GROUP BY 
-                    FlúgviNr, Dato, Slag, MatarSlag, MealDeliveryCode, RowNum
-                HAVING 
-                    SUM(Quantity) + CASE WHEN RowNum = 1 THEN SUM(NumberOfExtra) ELSE 0 END > 0
-                ORDER BY 
-                    2, 1, 3 DESC, 4;
+                        RowNum = 1
+                    GROUP BY 
+                        FlúgviNr, Dato, Slag, MatarSlag, MealDeliveryCode
+                    HAVING 
+                        SUM(
+                            CASE 
+                                WHEN Slag = 'Ekstra' THEN NumberOfExtra
+                                ELSE Quantity
+                            END
+                        ) > 0
+                    ORDER BY 
+                        Dato, FlúgviNr, Slag DESC, MatarSlag;
+
                     ";
 
                     using (SqlCommand command = new SqlCommand(query, connection))
@@ -355,6 +383,9 @@ namespace HotelStepOrderStep
                                     MealDeliveryCode = reader["MealDeliveryCode"].ToString()
                                 };
 
+                                // Log each fetched MealOrder for debugging
+                                Console.WriteLine($"Fetched MealOrder: FlightNumber={mealOrderData.FlightNumber}, Date={mealOrderData.Date}, Type={mealOrderData.Type}, MealType={mealOrderData.MealType}, Quantity={mealOrderData.Quantity}, MealDeliveryCode={mealOrderData.MealDeliveryCode}");
+
                                 // Only add if MealDeliveryCode is not empty and quantity > 0
                                 if (!string.IsNullOrWhiteSpace(mealOrderData.MealDeliveryCode) && mealOrderData.Quantity > 0)
                                 {
@@ -365,7 +396,6 @@ namespace HotelStepOrderStep
                                     Console.WriteLine($"Skipped line with FlightNumber: {mealOrderData.FlightNumber}, MealDeliveryCode: {mealOrderData.MealDeliveryCode}, Quantity: {mealOrderData.Quantity}");
                                 }
                             }
-
                         }
                     }
                 }
@@ -464,17 +494,18 @@ namespace HotelStepOrderStep
             return products;
         }
 
-        // Compare the meal order data with product list and calculate the orders
         public static List<OrderLine> CompareAndCalculateOrders(List<MealOrder> mealOrders, List<dynamic> orderstepProducts)
         {
             var ordersToPlace = new List<OrderLine>();
 
+            // Group meal orders by flight number and meal delivery code
             var groupedMealOrders = mealOrders
                 .GroupBy(m => new { m.FlightNumber, m.MealDeliveryCode })
                 .Select(g => new
                 {
                     FlightNumber = g.Key.FlightNumber,
                     MealDeliveryCode = g.Key.MealDeliveryCode,
+                    // Sum the total quantity, including any extras
                     TotalQuantity = g.Sum(m => m.Quantity),
                     Date = g.First().Date
                 })
@@ -492,7 +523,7 @@ namespace HotelStepOrderStep
                 {207062, 75.00m},
                 {207065, 75.00m},
                 {207063, 75.00m},
-                {207061, 60.00m} // Assuming price for Vegan (MealDeliveryCode: 207061)
+                {207061, 60.00m} // Price for Vegan (MealDeliveryCode: 207061)
             };
 
             foreach (var groupedMeal in groupedMealOrders)
@@ -513,18 +544,17 @@ namespace HotelStepOrderStep
 
                     string calendarLineTextFlight = $"{groupedMeal.FlightNumber} - Product - {matchingProduct.name}, Quantity - {groupedMeal.TotalQuantity}";
 
-                    // Determine if this line requires a calendar event
-                    // Example: Only 'Crewmatur' (MealDeliveryCode: 207058) requires an event
+                    // Determine if this line requires a calendar event (for example, Crewmatur requires a calendar event)
                     bool requiresEvent = groupedMeal.MealDeliveryCode == "207058";
 
                     var orderLine = new OrderLine
                     {
                         Id = null,
                         ProductId = productId,
-                        Qty = groupedMeal.TotalQuantity,
+                        Qty = groupedMeal.TotalQuantity, // This will include any extra meals
                         Description = descriptionWithFlight,
                         CalendarText = calendarLineTextFlight,
-                        FlightNumber = groupedMeal.FlightNumber, // Assigning FlightNumber
+                        FlightNumber = groupedMeal.FlightNumber,
                         UnitSalesPrice = unitSalesPrice,
                         UnitCostPrice = unitCostPrice,
                         DiscountPer = null,
@@ -539,7 +569,7 @@ namespace HotelStepOrderStep
                 }
             }
 
-            // Final filtering to ensure no lines with Qty <= 0 are added (safety net)
+            // Ensure no lines with Qty <= 0 are added (safety net)
             ordersToPlace = ordersToPlace.Where(o => o.Qty > 0).ToList();
 
             // Log the orders to place for debugging
@@ -551,6 +581,7 @@ namespace HotelStepOrderStep
 
             return ordersToPlace;
         }
+
 
         // Fetch existing order data from OrderStep API
         public static async Task<Order> FetchExistingOrderData(string token, DateTime targetDate)
@@ -644,6 +675,7 @@ namespace HotelStepOrderStep
                         // If the line already exists, check for quantity differences
                         if (decimal.TryParse(matchingExistingLine.Qty, out decimal existingQty))
                         {
+                            // Compare combined Quantity and NumberOfExtra from the database with the existing order's quantity
                             if (existingQty != orderToPlace.Qty)
                             {
                                 Console.WriteLine($"Detected change in order for product {orderToPlace.ProductId} on flight {flightNumber}. Updating...");
@@ -654,6 +686,7 @@ namespace HotelStepOrderStep
                                 Console.WriteLine($"No changes detected for product {orderToPlace.ProductId} on flight {flightNumber}. Skipping update.");
                             }
                         }
+
 
                         // Assign the existing calendar_event_resource_id if required
                         if (orderToPlace.RequiresCalendarEvent)
