@@ -291,7 +291,7 @@ namespace HotelStepOrderStep
                                 WHEN mbmt.OrderType = 1 THEN 'Sola'
                                 WHEN mbmt.OrderType = 3 THEN 'Prepaid'
                                 WHEN mbmt.OrderType = 5 THEN 'Crew'
-                                WHEN mbmt.OrderType = 6 OR feo.FlightId IS NOT NULL THEN 'Ekstra'
+                                ELSE 'Ekstra'
                             END AS Slag,
                             mt.Name AS MatarSlag, 
                             mbmt.Quantity, 
@@ -303,7 +303,7 @@ namespace HotelStepOrderStep
                                                  WHEN mbmt.OrderType = 1 THEN 'Sola'
                                                  WHEN mbmt.OrderType = 3 THEN 'Prepaid'
                                                  WHEN mbmt.OrderType = 5 THEN 'Crew'
-                                                 WHEN mbmt.OrderType = 6 OR feo.FlightId IS NOT NULL THEN 'Ekstra'
+                                                 ELSE 'Ekstra'
                                              END
                                 ORDER BY mbmt.OrderType
                             ) AS RowNum
@@ -333,35 +333,41 @@ namespace HotelStepOrderStep
                             [PAX_DATA].[Meal].[FlightExtraOrder] feo 
                             ON feo.FlightId = f.FlightId AND feo.MealTypeId = mbmt.MealTypeId
                         WHERE 
-                            CAST(f.FlightDate AS DATE) = CAST(DATEADD(day, 2, GETDATE()) AS DATE)
+                            CAST(f.FlightDate AS DATE) = CAST(DATEADD(day, 4, GETDATE()) AS DATE)
                         AND 
                             mb.MealBookingId = a.MealBookingId
                     )
+                    -- Combine regular meals and extra meals in the same group if the meal type matches
+                    , SummedMeals AS (
+                        SELECT 
+                            FlúgviNr, 
+                            Dato,
+                            Slag,
+                            MatarSlag,
+                            SUM(CASE 
+                                    WHEN Slag = 'Sola' THEN Quantity + NumberOfExtra -- Add extra only to 'Sola'
+                                    ELSE Quantity -- Do not add extra to 'Prepaid', 'Crew', etc.
+                                END) AS Antal, 
+                            MealDeliveryCode
+                        FROM 
+                            MealData
+                        WHERE 
+                            RowNum = 1 -- Include only the first row per partition
+                        GROUP BY 
+                            FlúgviNr, Dato, Slag, MatarSlag, MealDeliveryCode
+                        HAVING 
+                            SUM(Quantity) > 0 OR SUM(NumberOfExtra) > 0 -- Ensure at least one meal exists in the group
+                    )
+                    -- Final query to display all meals and total
                     SELECT 
                         FlúgviNr, 
                         Dato,
                         Slag,
                         MatarSlag,
-                        SUM(
-                            CASE 
-                                WHEN Slag = 'Ekstra' THEN NumberOfExtra
-                                ELSE Quantity
-                            END
-                        ) AS Antal, 
+                        Antal, 
                         MealDeliveryCode
                     FROM 
-                        MealData
-                    WHERE 
-                        RowNum = 1
-                    GROUP BY 
-                        FlúgviNr, Dato, Slag, MatarSlag, MealDeliveryCode
-                    HAVING 
-                        SUM(
-                            CASE 
-                                WHEN Slag = 'Ekstra' THEN NumberOfExtra
-                                ELSE Quantity
-                            END
-                        ) > 0
+                        SummedMeals
                     ORDER BY 
                         Dato, FlúgviNr, Slag DESC, MatarSlag;
 
@@ -966,7 +972,7 @@ namespace HotelStepOrderStep
                 {
                     lead_customer_id = 307480,
                     @ref = referenceValue, // Use original reference
-                    title = $"Flight Meals for {targetDate:yyyy-MM-dd} - Flights: {flightsList}",
+                    title = $"Flight Meals for {targetDate:yyyy-MM-dd}",
                     date = targetDate.ToString("yyyy-MM-dd"),
                     delivery_date = targetDate.ToString("yyyy-MM-dd"),
                     language = "fo",
